@@ -8,6 +8,7 @@ from .serializers import (
     ConversationSerializer,
     MessageSerializer
 )
+from .pagination import MessageCursorPagination
 
 class ConversationListCreateView(APIView):
     permission_classes=[IsAuthenticated]
@@ -63,22 +64,35 @@ class MessageListCreateView(APIView):
     permission_classes=[IsAuthenticated]
 
     def get(self, request, conversation_id):
+        #check wheather the user belongs to this conversation
+
         conversation = get_object_or_404(
             Conversation,
-            pk=conversation_id,
+            id=conversation_id,
             participants=request.user
         )
-        messages = (
-            Message.objects.filter(conversation=conversation)
-            .select_related("sender", "conversation")
-            .order_by("created_at")
-        )
-        serializer = MessageSerializer(
+
+        # Retrieve messages efficiently
+
+        messages = Message.objects.filter(
+            conversation=conversation
+        ).select_related("sender").order_by("-id")
+
+        #create paginator
+        paginator = MessageCursorPagination()
+
+        #Retrieve only requested page
+
+        page = paginator.paginate_queryset(
             messages,
-            many=True
+            request,
+            view=self
         )
 
-        return Response(serializer.data)
+        #serialize message
+
+        serializer = MessageSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     def post(self, request, conversation_id):
         conversation = get_object_or_404(

@@ -43,6 +43,20 @@ def save_message(converation_id, user, content):
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.user = self.scope["user"]
+
+        print("\n========== WEBSOCKET DEBUG ==========")
+        print("WEBSOCKET CONNECT CALLED")
+        print("USER:", self.user)
+        print("AUTHENTICATED:", self.user.is_authenticated)
+        print("ORIGIN:", self.scope.get("headers"))
+    
+        self.conversation_id = self.scope["url_route"]["kwargs"]["conversation_id"]
+    
+        print("CONVERSATION ID:", self.conversation_id)
+        print("=====================================\n")
+
+    # Keep the rest of your existing code.
+        self.user = self.scope["user"]
         self.conversation_id = self.scope["url_route"]["kwargs"]["conversation_id"]
         self.room_group_name = f"chat_{self.conversation_id}"
 

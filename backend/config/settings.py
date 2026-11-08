@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -166,15 +167,27 @@ REST_FRAMEWORK = {
 ASGI_APPLICATION = "config.asgi.application"
 
 CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {
-                "hosts": [
-                    (
-                        os.getenv("REDIS_HOST", "127.0.0.1"),
-                        int(os.getenv("REDIS_PORT", 6379)),
-                    )
-                ],
-            },
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+
+        "CONFIG": {
+            "hosts": [
+                {
+                    "address": "redis://127.0.0.1:6379/0",
+                    "socket_connect_timeout": 30,
+                    "socket_timeout": 30,
+                }
+            ],
+
+            "capacity": 1500,
+            "expiry": 60,
         },
+    },
+}
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
 }

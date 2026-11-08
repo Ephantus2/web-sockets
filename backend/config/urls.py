@@ -33,7 +33,7 @@ urlpatterns = [
         "api/token/refresh/",
         TokenRefreshView.as_view(),
         name="token-refresh"
-    )
+    ),
 
     #chat APIs
     path("api/", include("chat.urls")),

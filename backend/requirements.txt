@@ -1,0 +1,9 @@
+django
+djangorestframework
+channels
+channels-redis
+daphne
+psycopg[binary]
+djangorestframework-simplejwt
+django-cors-headers
+python-dotenv

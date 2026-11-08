@@ -20,7 +20,7 @@ from channels.security.websocket import AllowedHostsOriginValidator
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
-application = get_asgi_application()
+django_asgi_app = get_asgi_application()
 
 from chat.routing import websocket_urlpatterns
 

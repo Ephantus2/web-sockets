@@ -12,6 +12,8 @@ from django.utils import timezone
 from notifications.models import Notification
 from django.db import transaction
 
+from notifications.tasks import create_message_notifications
+
 @database_sync_to_async
 def is_conversation_participant(conversation_id, user):
     return Conversation.objects.filter(
@@ -44,39 +46,6 @@ def save_message(converation_id, user, content):
             .values_list("id", flat=True)
         )
 
-        # create a notification for each recipient
-        notifications = [
-            Notification(
-                recipient_id=recipient_id,
-                sender=user,
-                notification_type="MESSAGE",
-                title=f"{user} sent you a message",
-                message=content[:200],
-                conversation=conversation
-            )
-            for recipient_id in recipient_ids
-        ]
-
-        Notification.objects.bulk_create(notifications)
-
-        notification_events = [
-            {
-                "recipient_id": notification.recipient_id,
-                "notification": {
-                    "id": notification.id,
-                    "sender": str(user),
-                    "notification_type": notification.notification_type,
-                    "title": notification.title,
-                    "message": notification.message,
-                    "conversation": notification.id,
-                    "is_read": notification.is_read,
-                    "created_at": notification.created_at.isoformat()
-                }
-            }
-            for notification in notifications
-        ]
-    
-
         message_data = {
             "id": message.id,
             "conversation": conversation.id,
@@ -86,7 +55,7 @@ def save_message(converation_id, user, content):
             }
         return {
             "message": message_data,
-            "notification_events": notification_events
+            "recipient_ids": recipient_ids
         }
 
 @database_sync_to_async
@@ -228,20 +197,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
-        # send individual notification to recipients
-
-        for event in saved["notification_events"]:
-            notification_group = (
-                f"user_{event['recipient_id']}_notifications"
+        if saved["recipient_ids"]:
+            create_message_notifications.delay(
+                saved["message"]["id"],
+                saved["recipient_ids"]
             )
 
-            await self.channel_layer.group_send(
-                notification_group,
-                {
-                    "type": "notification_message",
-                    "notification": event["notification"]
-                }
-            )
 
 
     async def chat_message(self, event):

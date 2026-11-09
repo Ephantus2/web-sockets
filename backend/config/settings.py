@@ -191,3 +191,21 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }
+
+CELERY_BROKER_URL = (
+    f"redis://{os.getenv('REDIS_HOST', '127.0.0.1')}:"
+    f"{os.getenv('REDIS_PORT', '6379')}/1"
+)
+
+CELERY_RESULT_BACKEND = (
+    f"redis://{os.getenv('REDIS_HOST', '127.0.0.1')}:"
+    f"{os.getenv('REDIS_PORT', '6379')}/2"
+)
+
+CELERY_ACCEPT_CONTENT = ["json"]
+
+CELERY_TASK_SERIALIZER = "json"
+
+CELERY_RESULT_SERIALIZER = "json"
+
+CELERY_TIMEZONE = "Africa/Nairobi"

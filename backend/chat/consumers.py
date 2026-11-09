@@ -9,6 +9,9 @@ from .models import Conversation, Message, MessageRead
 from .serializers import MessageSerializer
 from django.utils import timezone
 
+from notifications.models import Notification
+from django.db import transaction
+
 @database_sync_to_async
 def is_conversation_participant(conversation_id, user):
     return Conversation.objects.filter(
@@ -18,27 +21,55 @@ def is_conversation_participant(conversation_id, user):
 
 @database_sync_to_async
 def save_message(converation_id, user, content):
-    conversation = get_object_or_404(
-        Conversation,
-        id=converation_id
-    )
+    with transaction.atomic():
+        conversation = get_object_or_404(
+            Conversation,
+            id=converation_id
+        )
 
-    message = Message.objects.create(
-        conversation=conversation,
-        sender=user,
-        content=content
-    )
+        message = Message.objects.create(
+            conversation=conversation,
+            sender=user,
+            content=content
+        )
 
-    # update conversation activity timestamp
+        # update conversation activity timestamp
 
-    conversation.save(update_fields=["updated_at"])
+        conversation.save(update_fields=["updated_at"])
 
-    return {
-        "id": message.id,
-        "conversation": conversation.id,
-        "sender": str(message.sender),
-        "content": message.content,
-        "created_at": message.created_at.isoformat()
+        # find everyone else in this conversation
+        recipient_ids = list(
+            conversation.participants
+            .exclude(id=user.id)
+            .values_list("id", flat=True)
+        )
+
+        # create a notification for each recipient
+        notifications = [
+            Notification(
+                recipient_id=recipient_id,
+                sender=user,
+                notification_type="MESSAGE",
+                title=f"{user} sent you a message",
+                message=content[:200],
+                conversation=conversation
+            )
+            for recipient_id in recipient_ids
+        ]
+
+        Notification.objects.bulk_create(notifications)
+    
+
+        message_data = {
+            "id": message.id,
+            "conversation": conversation.id,
+            "sender": str(message.sender),
+            "content": message.content,
+            "created_at": message.created_at.isoformat()
+            }
+        return {
+            "message": message_data,
+            "recipient_ids": recipient_ids
         }
 
 @database_sync_to_async

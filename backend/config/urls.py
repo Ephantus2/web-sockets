@@ -37,4 +37,5 @@ urlpatterns = [
 
     #chat APIs
     path("api/", include("chat.urls")),
+    path("api/notifications/", include("notifications.urls"))
 ]

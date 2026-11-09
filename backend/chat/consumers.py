@@ -58,6 +58,23 @@ def save_message(converation_id, user, content):
         ]
 
         Notification.objects.bulk_create(notifications)
+
+        notification_events = [
+            {
+                "recipient_id": notification.recipient_id,
+                "notification": {
+                    "id": notification.id,
+                    "sender": str(user),
+                    "notification_type": notification.notification_type,
+                    "title": notification.title,
+                    "message": notification.message,
+                    "conversation": notification.id,
+                    "is_read": notification.is_read,
+                    "created_at": notification.created_at.isoformat()
+                }
+            }
+            for notification in notifications
+        ]
     
 
         message_data = {
@@ -69,7 +86,7 @@ def save_message(converation_id, user, content):
             }
         return {
             "message": message_data,
-            "recipient_ids": recipient_ids
+            "notification_events": notification_events
         }
 
 @database_sync_to_async
@@ -195,19 +212,37 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not is_member:
             await self.close(code=4403)
             return
-        message = await save_message(
+
+        saved = await save_message(
             self.conversation_id,
             self.user,
             content.strip()
         )
-        # broadcast the saved message to the group
+
+        #Broadcast the message to conversation participants
         await self.channel_layer.group_send(
             self.room_group_name,
             {
                 "type": "chat_message",
-                "message": message
+                "message": saved["message"]
             }
         )
+
+        # send individual notification to recipients
+
+        for event in saved["notification_events"]:
+            notification_group = (
+                f"user_{event['recipient_id']}_notifications"
+            )
+
+            await self.channel_layer.group_send(
+                notification_group,
+                {
+                    "type": "notification_message",
+                    "notification": event["notification"]
+                }
+            )
+
 
     async def chat_message(self, event):
         await self.send(text_data = json.dumps({

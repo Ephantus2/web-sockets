@@ -13,6 +13,9 @@ from .pagination import MessageCursorPagination
 from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
 from rest_framework.exceptions import ValidationError
 
+from django.db.models import Count, OuterRef, Subquery, IntegerField, Value
+from django.db.models.functions import Coalesce
+
 class ConversationListCreateView(APIView):
     permission_classes=[IsAuthenticated]
 
@@ -171,3 +174,32 @@ class MessageSearchView(APIView):
         serializer = MessageSerializer(messages, many=True)
 
         return Response(serializer.data)
+
+class UnreadCountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        unread_messages = (
+            Message.objects.filter(conversation_id=OuterRef("pk"))
+            .exclude(sender=request.user)
+            .exclude(read_receipts__user=request.user)
+            .order_by()
+            .values("conversation_id")
+            .annotate(total=Count("id", distinct=True))
+            .values("total")
+        )
+
+        conversations = (
+            Conversation.objects.filter(participants=request.user)
+            .annotate(
+                unread_count=Coalesce(
+                    Subquery(
+                        unread_messages,
+                        output_field=IntegerField()
+                    ),
+                    Value(0)
+                )
+            )
+            .values("id", "name", "unread_count")
+        )
+        return Response(list(conversations))

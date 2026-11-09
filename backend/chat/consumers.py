@@ -71,6 +71,16 @@ def mark_messages_as_read(conversation_id, user):
     )
 
     return len(read_records)
+
+@database_sync_to_async
+def get_unread_message_count(conversation_id, user):
+    return Message.objects.filter(
+        conversation_id=conversation_id
+    ).exclude(
+        sender=user
+    ).exclude(
+        read_receipts__user=user
+    ).count()
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.user = self.scope["user"]
@@ -189,13 +199,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
             self.user
         )
 
+        unread_count = await get_unread_message_count(
+            self.conversation_id,
+            self.user
+        )
+
         await self.channel_layer.group_send(
             self.room_group_name,
             {
                 "type": "read_receipt",
                 "user": str(self.user),
                 "conversation_id": self.conversation_id,
-                "count": count
+                "count": count,
+                "unread_count": unread_count
             }
         )
 
@@ -205,6 +221,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "type": "read_receipt",
                 "user": event["user"],
                 "conversation_id": event["conversation_id"],
-                "count": event["count"]
+                "count": event["count"],
+                "unread_count": event["unread_count"]
             })
         )

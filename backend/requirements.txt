@@ -16,6 +16,7 @@ click-repl==0.4.1
 constantly==23.10.4
 cryptography==50.0.2
 daphne==4.2.3
+dj-database-url==3.1.2
 Django==6.1.3
 django-cors-headers==4.9.0
 djangorestframework==3.18.3
@@ -46,4 +47,5 @@ tzlocal==5.4.5
 ujson==6.1.0
 vine==5.1.0
 wcwidth==0.9.4
+whitenoise==6.12.0
 zope.interface==8.7

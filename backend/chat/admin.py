@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Conversation, Message
+from .models import Conversation, Message, MessageRead
 
 # Register your models here.
 @admin.register(Conversation)
@@ -26,3 +26,5 @@ class MessageAdmin(admin.ModelAdmin):
     search_fields = ["content"]
 
     list_filter = ["created_at"]
+
+admin.site.register(MessageRead)

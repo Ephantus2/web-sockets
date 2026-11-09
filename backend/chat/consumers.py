@@ -5,8 +5,9 @@ from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
 from django.shortcuts import get_object_or_404
 
-from .models import Conversation, Message
+from .models import Conversation, Message, MessageRead
 from .serializers import MessageSerializer
+from django.utils import timezone
 
 @database_sync_to_async
 def is_conversation_participant(conversation_id, user):
@@ -40,6 +41,36 @@ def save_message(converation_id, user, content):
         "created_at": message.created_at.isoformat()
         }
 
+@database_sync_to_async
+def mark_messages_as_read(conversation_id, user):
+    unread_messages = Message.objects.filter(
+        conversation_id=conversation_id
+    ).exclude(
+        sender=user
+    ).exclude(
+        read_receipts__user=user
+    )
+
+    now = timezone.now()
+
+    read_records = [
+        MessageRead(
+            message_id=message_id,
+            user=user,
+            read_at=now
+        )
+        for message_id in unread_messages.values_list(
+            "id",
+            flat=True
+        )
+    ]
+
+    MessageRead.objects.bulk_create(
+        read_records,
+        ignore_conflicts=True
+    )
+
+    return len(read_records)
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.user = self.scope["user"]
@@ -96,6 +127,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "message": "Invalid JSON format."
             }))
             return
+        message_type = data.get("type", "message")
+
+        if message_type == "read":
+            await self.mark_as_read()
+            return
+        
         content = data.get("message", "")
         if not isinstance(content, str) or not content.strip():
             await self.send(text_data=json.dumps({
@@ -145,3 +182,29 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
 
         print(f"WebSocket disconnected: {close_code}")
+
+    async def mark_as_read(self):
+        count = await mark_messages_as_read(
+            self.conversation_id,
+            self.user
+        )
+
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                "type": "read_receipt",
+                "user": str(self.user),
+                "conversation_id": self.conversation_id,
+                "count": count
+            }
+        )
+
+    async def read_receipt(self, event):
+        await self.send(
+            text_data=json.dumps({
+                "type": "read_receipt",
+                "user": event["user"],
+                "conversation_id": event["conversation_id"],
+                "count": event["count"]
+            })
+        )

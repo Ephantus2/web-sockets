@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.db.migrations import autodetector
+from django.db.models import constraints
 
 class Conversation(models.Model):
     name = models.CharField(max_length=225, blank=True, null=True)
@@ -50,3 +51,36 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.sender} - {self.conversation_id}"
+    
+class MessageRead(models.Model):
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="read_receipts"
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="message_reads"
+    )
+
+    read_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["message", "user"],
+                name="unique_message_user_read"
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields=["user", "message"],
+                name="chat_user_message_read_idx"
+            )
+        ]
+
+        def __str__(self):
+            return f"{self.user} read message {self.message_id}"

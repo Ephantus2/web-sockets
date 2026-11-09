@@ -10,6 +10,9 @@ from .serializers import (
 )
 from .pagination import MessageCursorPagination
 
+from django.contrib.postgres.search import SearchVector, SearchQuery, SearchRank
+from rest_framework.exceptions import ValidationError
+
 class ConversationListCreateView(APIView):
     permission_classes=[IsAuthenticated]
 
@@ -119,3 +122,52 @@ class MessageListCreateView(APIView):
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST
         )
+
+class MessageSearchView(APIView):
+    permission_classes=[IsAuthenticated]
+
+    def get(self, request, conversation_id):
+        conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            participants=request.user
+        )
+
+        search_text = request.query_params.get("q", "").strip()
+
+        if not search_text:
+            raise ValidationError({
+                "error": "Search query is required"
+            })
+
+        if len(search_text) > 200:
+            raise ValidationError({
+                "error": "Search query cannot exceed 200 characters"
+            })
+        search_vector = SearchVector(
+            "content",
+            config="english"
+        )
+
+        search_query = SearchQuery(
+            search_text,
+            config="english"
+        )
+
+        messages = Message.objects.filter(
+            conversation=conversation
+        ).annotate(
+            search=search_vector,
+            rank=SearchRank(search_vector, search_query)
+        ).filter(
+            search=search_query
+        ).select_related(
+            "sender"
+        ).order_by(
+            "-rank",
+            "-id"
+        )
+
+        serializer = MessageSerializer(messages, many=True)
+
+        return Response(serializer.data)

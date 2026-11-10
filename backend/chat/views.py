@@ -114,7 +114,7 @@ class MessageListCreateView(APIView):
         if serializer.is_valid():
             message = serializer.save(
                 conversation=conversation,
-                sender=request.sender
+                sender=request.user
             )
 
             return Response(

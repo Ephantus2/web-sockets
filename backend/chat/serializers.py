@@ -38,3 +38,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "content",
             "created_at"
         ]
+
+        read_only_fields = [
+            "id",
+            "conversation",
+            "sender",
+            "created_at"
+        ]

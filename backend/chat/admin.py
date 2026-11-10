@@ -13,6 +13,7 @@ class ConversationAdmin(admin.ModelAdmin):
     ]
 
     search_fields = ["name"]
+    filter_horizontal = ("participants")
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):

@@ -16,6 +16,11 @@ from rest_framework.exceptions import ValidationError
 from django.db.models import Count, OuterRef, Subquery, IntegerField, Value
 from django.db.models.functions import Coalesce
 
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+
+from notifications.tasks import create_message_notifications
+
 class ConversationListCreateView(APIView):
     permission_classes=[IsAuthenticated]
 
@@ -117,8 +122,41 @@ class MessageListCreateView(APIView):
                 sender=request.user
             )
 
+            # update conversation activity timestamp
+
+            conversation.save(update_fields=["updated_at"])
+
+            # get other participants
+
+            recipient_ids = list(
+                conversation.participants
+                .exclude(id=request.user.id)
+                .values_list("id", flat=True)
+            )
+
+            # broadcast message through redis
+
+
+            message_data = MessageSerializer(message).data
+
+            channel_layer = get_channel_layer()
+
+            async_to_sync(channel_layer.group_send)(
+                f"chat_{conversation_id}",
+                {
+                    "type": "chat_message",
+                    "message": message_data
+                }
+            )
+
+            if recipient_ids:
+                create_message_notifications.delay(
+                    message.id,
+                    recipient_ids
+                )
+
             return Response(
-                MessageSerializer(message).data,
+                message_data,
                 status=status.HTTP_201_CREATED
             )
         return Response(

@@ -34,7 +34,7 @@ class AdminBootstrapView(APIView):
             bootstrap_token,
             supplied_token
         ):
-            return Response({"error": "Invalid authorization Token"}, statis=status.HTTP_403_FORBIDDEN)
+            return Response({"error": "Invalid authorization Token"}, status=status.HTTP_403_FORBIDDEN)
 
         # prevent creation of duplicate administrators
         if User.objects.filter(is_superuser=True).exists():

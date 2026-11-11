@@ -9,10 +9,10 @@ from .models import Conversation, Message, MessageRead
 from .serializers import MessageSerializer
 from django.utils import timezone
 
-from notifications.models import Notification
 from django.db import transaction
 
-from notifications.tasks import create_message_notifications
+from notifications.models import NotificationOutbox
+from notifications.tasks import dispatch_pending_notification_outbox
 
 @database_sync_to_async
 def is_conversation_participant(conversation_id, user):
@@ -45,6 +45,17 @@ def save_message(converation_id, user, content):
             .exclude(id=user.id)
             .values_list("id", flat=True)
         )
+
+        if recipient_ids:
+            outbox = NotificationOutbox.objects.create(
+                message=message,
+                recipient_ids=recipient_ids
+            )
+
+            print(
+                f"[OUTBOX] Created event {outbox.id} "
+                f"for WebSocket message {message.id}", flush=True
+            )
 
         message_data = {
             "id": message.id,
@@ -186,10 +197,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
         if saved["recipient_ids"]:
-            create_message_notifications.delay(
-                saved["message"]["id"],
-                saved["recipient_ids"]
-            )
+            try:
+                dispatch_pending_notification_outbox.delay()
+                print(
+                    "[OUTBOX] WebSocket dispatcher triggered.",
+                    flush=True
+                )
+            except Exception as error:
+                print(
+                    "[OUTBOX DISPATCH ERROR]",
+                    repr(error),
+                    flush=True
+                )
 
 
 

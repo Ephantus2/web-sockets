@@ -21,6 +21,15 @@ from channels.layers import get_channel_layer
 
 from notifications.tasks import create_message_notifications
 
+from django.db import transaction
+
+import logging
+
+from notifications.models import NotificationOutbox
+from notifications.tasks import dispatch_pending_notification_outbox
+
+logger = logging.getLogger(__name__)
+
 class ConversationListCreateView(APIView):
     permission_classes=[IsAuthenticated]
 
@@ -106,64 +115,106 @@ class MessageListCreateView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
     def post(self, request, conversation_id):
+
         conversation = get_object_or_404(
             Conversation,
             pk=conversation_id,
             participants=request.user
         )
 
-        serializer = MessageSerializer(
-            data=request.data
-        )
+        serializer = MessageSerializer(data=request.data)
 
         if serializer.is_valid():
-            message = serializer.save(
-                conversation=conversation,
-                sender=request.user
-            )
 
-            # update conversation activity timestamp
+            # 1. Save message and outbox event atomically
+            with transaction.atomic():
 
-            conversation.save(update_fields=["updated_at"])
-
-            # get other participants
-
-            recipient_ids = list(
-                conversation.participants
-                .exclude(id=request.user.id)
-                .values_list("id", flat=True)
-            )
-
-            # broadcast message through redis
-
-
-            message_data = MessageSerializer(message).data
-
-            channel_layer = get_channel_layer()
-
-            async_to_sync(channel_layer.group_send)(
-                f"chat_{conversation_id}",
-                {
-                    "type": "chat_message",
-                    "message": message_data
-                }
-            )
-
-            if recipient_ids:
-                create_message_notifications.delay(
-                    message.id,
-                    recipient_ids
+                message = serializer.save(
+                    conversation=conversation,
+                    sender=request.user
                 )
+
+                conversation.save(update_fields=["updated_at"])
+
+                # 2. Identify recipients
+                recipient_ids = list(
+                    conversation.participants
+                    .exclude(id=request.user.id)
+                    .values_list("id", flat=True)
+                )
+
+                # 3. Create persistent notification event
+                if recipient_ids:
+
+                    outbox = NotificationOutbox.objects.create(
+                        message=message,
+                        recipient_ids=recipient_ids
+                    )
+
+                    print(
+                        f"[OUTBOX] Created event {outbox.id} "
+                        f"for message {message.id}",
+                        flush=True
+                    )
+
+                # 4. Serialize message before leaving transaction
+                message_data = MessageSerializer(message).data
+
+                # 5. Schedule real-time operations after commit
+                def after_commit():
+
+                    channel_layer = get_channel_layer()
+
+                    if channel_layer is None:
+                        print("[CHAT ERROR] Channel layer unavailable.", flush=True)
+
+                    else:
+
+                        # Broadcast message to conversation participants
+                        try:
+                            async_to_sync(channel_layer.group_send)(
+                                f"chat_{conversation_id}",
+                                {
+                                    "type": "chat_message",
+                                    "message": message_data
+                                }
+                            )
+    
+                        except Exception as error:
+                            print(
+                                "[CHAT BROADCAST ERROR]",
+                                repr(error),
+                                flush=True
+                            )
+
+                    # Trigger outbox dispatcher
+                    if recipient_ids:
+                        try:
+                            dispatch_pending_notification_outbox.delay()
+
+                            print(
+                                "[OUTBOX] Dispatcher triggered.",
+                                flush=True
+                            )
+
+                        except Exception as error:
+                            print(
+                                "[OUTBOX DISPATCH ERROR]",
+                                repr(error),
+                                flush=True
+                            )
+
+                transaction.on_commit(after_commit)
 
             return Response(
                 message_data,
                 status=status.HTTP_201_CREATED
             )
+
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST
         )
-
 class MessageSearchView(APIView):
     permission_classes=[IsAuthenticated]
 

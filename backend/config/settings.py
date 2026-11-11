@@ -255,6 +255,14 @@ CELERY_RESULT_SERIALIZER = "json"
 
 CELERY_TIMEZONE = "Africa/Nairobi"
 
+CELERY_BEAT_SCHEDULE = {
+    "dispatch-pending-notifications-every-minute": {
+        "task": "notifications.tasks.dispatch_pending_notification_outbox",
+        "schedule": 60.0,
+        "args": (50,),
+    },
+}
+
 # production  security
 
 SECURE_PROXY_SSL_HEADER = (

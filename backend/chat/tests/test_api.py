@@ -5,7 +5,10 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from chat.models import Conversation, Message
-from notifications.models import Notification
+from notifications.models import Notification, NotificationOutbox
+
+from unittest.mock import patch
+from channels.layers import InMemoryChannelLayer
 
 User = get_user_model()
 
@@ -158,3 +161,139 @@ class ChatAPITests(TestCase):
 
         notification.refresh_from_db()
         self.assertTrue(notification.is_read)
+
+    def test_sending_message_creates_outbox_event(self):
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/",
+            {
+                "content": "Testing transactional outbox"
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        # verify message was created.
+
+        message = Message.objects.get(
+            content="Testing transactional outbox"
+        )
+
+        self.assertEqual(message.sender, self.alice)
+        self.assertEqual(message.conversation, self.conversation)
+
+        # verify corresponding outbox event was created.
+        outbox = NotificationOutbox.objects.get(
+            message=message
+        )
+
+        self.assertIsNone(outbox.dispatched_at)
+
+        self.assertIsNone(outbox.completed_at)
+        self.assertIsNone(outbox.failed_at)
+
+    def test_non_participant_cannot_create_message(self):
+        self.client.force_authenticate(user=self.charlie)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/",
+            {
+                "content": "Unauthorized"
+            },
+            format = "json"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+        self.assertFalse(
+            Message.objects.filter(
+                content="Unautorized message"
+            ).exists()
+        )
+
+        self.assertEqual(
+            NotificationOutbox.objects.count(),
+            0
+        )
+
+    def test_outbox_includes_all_recipients_except_sender(self):
+        # Add charlie to the conversation
+
+        self.conversation.participants.add(self.charlie)
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/",
+            {
+                "content": "Hello everyone!"
+            },
+            format = "json"
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        message = Message.objects.get(
+            content="Hello everyone!"
+        )
+
+        outbox = NotificationOutbox.objects.get(message=message)
+
+        self.assertCountEqual(
+            outbox.recipient_ids,
+            [self.bob.id, self.charlie.id]
+        )
+
+        self.assertNotIn(
+            self.alice.id,
+            outbox.recipient_ids
+        )
+
+    def test_invalid_message_does_not_create_outbox_event(self):
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/",
+            {
+                "content": ""
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Message.objects.count(), 0)
+        self.assertEqual(NotificationOutbox.objects.count(), 0)
+
+    def test_outbox_dispatcher_runs_after_transaction_commit(self):
+
+        self.client.force_authenticate(user=self.alice)
+
+        with patch(
+            "chat.views.get_channel_layer",
+            return_value=InMemoryChannelLayer()
+        ), patch(
+            "chat.views.dispatch_pending_notification_outbox.delay"
+        ) as mock_dispatch:
+
+            with self.captureOnCommitCallbacks(
+                execute=True
+            ) as callbacks:
+
+                response = self.client.post(
+                    f"/api/conversations/{self.conversation.id}/messages/",
+                    {
+                        "content": "Testing on_commit callback"
+                    },
+                    format="json"
+                )
+
+            self.assertEqual(response.status_code, 201)
+
+            # Confirm that an on_commit callback was registered.
+            self.assertEqual(len(callbacks), 1)
+
+            # Confirm that the callback triggered the dispatcher.
+            mock_dispatch.assert_called_once_with()

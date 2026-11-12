@@ -130,7 +130,7 @@ class ChatConsumerTests(TransactionTestCase):
 
         async_to_sync(run_test)()
 
-    @patch("chat.consumers.create_message_notifications.delay")
+    @patch("chat.consumers.dispatch_pending_notification_outbox.delay")
     def test_user_can_send_message(self, mock_notification_task):
         token = self.get_token(self.alice)
 

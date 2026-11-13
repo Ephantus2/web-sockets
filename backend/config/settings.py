@@ -33,7 +33,7 @@ DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 ALLOWED_HOSTS = os.getenv(
     "ALLOWED_HOSTS",
-    "localhost,127.0.0.1"
+    "localhost,127.0.0.1,host.docker.internal"
 ).split(",")
 
 RENDER_EXTERNAL_HOSTNAME = os.getenv(

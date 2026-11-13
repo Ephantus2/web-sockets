@@ -3,8 +3,14 @@ import time
 from django.conf import settings
 import uuid
 from contextvars import ContextVar
-from django.contrib.postgres import operations
 from django.db import connection
+from django.urls import resolve, Resolver404
+from config.metrics import (
+    HTTP_ERRORS_TOTAL,
+    HTTP_REQUEST_DURATION,
+    HTTP_REQUESTS_TOTAL,
+    HTTP_REQUEST_DURATION
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +43,10 @@ class RequestLoggingMiddleware:
         token = request_id_context.set(request_id)
 
         request.request_id = request_id
+
+        # default values incase request processing raises an exception
+        status_code = 500
+        endpoint = "unmatched"
 
         # Record when the request starts
         start_time = time.perf_counter()
@@ -89,6 +99,17 @@ class RequestLoggingMiddleware:
             with connection.execute_wrapper(query_monitoring_wrapper):
                 response = self.get_response(request)
 
+                # capture the actual response status
+                status_code = response.status_code
+
+                # Resolve the url pattern to avoid high-cardinality labels
+
+                try:
+                    match = resolve(request.path_info)
+                    endpoint = match.route or match.view_name or "unknown"
+                except Resolver404:
+                    endpoint = "unmatched"
+
             # calculate request processing duration
 
             duration = time.perf_counter() - start_time
@@ -132,5 +153,30 @@ class RequestLoggingMiddleware:
 
             return response
         finally:
-            # prevent IDs leaking into other requests
+            # Calculate total requests duration
+            duration = time.perf_counter() - start_time
+
+            #1. Count HTTP requests
+            HTTP_REQUESTS_TOTAL.labels(
+                method=request.method,
+                endpoint=endpoint,
+                status=str(status_code)
+            ).inc()
+
+            #2. Record request duration
+            HTTP_REQUEST_DURATION.labels(
+                method=request.method,
+                endpoint=endpoint
+            ).observe(duration)
+
+            # 3. Count HTTP errors
+
+            if status_code >= 400:
+                HTTP_ERRORS_TOTAL.labels(
+                    method=request.method,
+                    endpoint=endpoint,
+                    status=str(status_code)
+                ).inc()
+            # prevent request IDs leaking into other requests
+
             request_id_context.reset(token)

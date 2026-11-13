@@ -20,7 +20,7 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView
 )
-from .views import health_check, redis_health_check
+from .views import health_check, redis_health_check, prometheus_metrics
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -37,6 +37,7 @@ urlpatterns = [
     ),
     path("health/", health_check, name="health-check"),
     path("health/redis/", redis_health_check, name="redis-health-check"),
+    path("metrics/", prometheus_metrics, name="prometheus-metrics"),
 
     #chat APIs
     path("api/", include("chat.urls")),

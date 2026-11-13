@@ -1,8 +1,9 @@
 import logging
 from django.db import connection, DatabaseError
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 import redis
 from django.conf import settings
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +68,11 @@ def redis_health_check(requests):
     finally:
         if client is not None:
             client.close()
+
+def prometheus_metrics(request):
+    metrics = generate_latest()
+
+    return HttpResponse(
+        metrics,
+        content_type=CONTENT_TYPE_LATEST
+    )

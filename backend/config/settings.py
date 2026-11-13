@@ -69,6 +69,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'config.middleware.RequestLoggingMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -87,6 +88,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173,http://127.0.0.1:5173",
     ).split(",")
 ]
+
 
 CSRF_TRUSTED_ORIGIN = [
     origin.strip()
@@ -327,3 +329,7 @@ LOGGING = {
         "level": "WARNING",
     },
 }
+
+# requests taking longer thatn this sre considered slow
+
+SLOW_REQUEST_THRESHOLD_MS = 1000

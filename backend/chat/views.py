@@ -151,10 +151,10 @@ class MessageListCreateView(APIView):
                         recipient_ids=recipient_ids
                     )
 
-                    print(
-                        f"[OUTBOX] Created event {outbox.id} "
-                        f"for message {message.id}",
-                        flush=True
+                    logger.info(
+                        "Created outbox event %s for message %s",
+                        outbox.id,
+                        message.id
                     )
 
                 # 4. Serialize message before leaving transaction
@@ -166,7 +166,11 @@ class MessageListCreateView(APIView):
                     channel_layer = get_channel_layer()
 
                     if channel_layer is None:
-                        print("[CHAT ERROR] Channel layer unavailable.", flush=True)
+                        logger.error(
+                            "Channel layer unavailable. "
+                            "Could not broadcast message %s",
+                            message.id
+                        )
 
                     else:
 
@@ -181,10 +185,10 @@ class MessageListCreateView(APIView):
                             )
     
                         except Exception as error:
-                            print(
-                                "[CHAT BROADCAST ERROR]",
-                                repr(error),
-                                flush=True
+                            logger.exception(
+                                "Failed to broadcast message %s",
+                                message.id,
+                                conversation_id
                             )
 
                     # Trigger outbox dispatcher
@@ -192,16 +196,17 @@ class MessageListCreateView(APIView):
                         try:
                             dispatch_pending_notification_outbox.delay()
 
-                            print(
-                                "[OUTBOX] Dispatcher triggered.",
-                                flush=True
+                            logger.info(
+                                "Notification outbox dispatcher triggered "
+                                "after message %s was committed",
+                                message.id
                             )
 
                         except Exception as error:
-                            print(
-                                "[OUTBOX DISPATCH ERROR]",
-                                repr(error),
-                                flush=True
+                            logger.exception(
+                                "Failed to trigger notification outbox dispatcher "
+                                "for message %s",
+                                message.id
                             )
 
                 transaction.on_commit(after_commit)

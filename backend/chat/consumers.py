@@ -14,6 +14,10 @@ from django.db import transaction
 from notifications.models import NotificationOutbox
 from notifications.tasks import dispatch_pending_notification_outbox
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 @database_sync_to_async
 def is_conversation_participant(conversation_id, user):
     return Conversation.objects.filter(
@@ -52,9 +56,10 @@ def save_message(converation_id, user, content):
                 recipient_ids=recipient_ids
             )
 
-            print(
-                f"[OUTBOX] Created event {outbox.id} "
-                f"for WebSocket message {message.id}", flush=True
+            logger.info(
+                "Created outbox event %s for WebSocket message %s",
+                outbox.id,
+                message.id
             )
 
         message_data = {
@@ -138,6 +143,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         await self.accept()
 
+        logger.info(
+            "WebSocket connected: user=%s conversation=%s",
+            self.user.id,
+            self.conversation_id
+        )
+
         await self.send(text_data=json.dumps({
             "type": "connection_established",
             "conversation_id": self.conversation_id,
@@ -199,15 +210,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if saved["recipient_ids"]:
             try:
                 dispatch_pending_notification_outbox.delay()
-                print(
-                    "[OUTBOX] WebSocket dispatcher triggered.",
-                    flush=True
+                logger.info(
+                    "Notification outbox dispatcher triggered "
+                    "for WebSocket message in conversation %s",
+                    self.conversation_id
                 )
-            except Exception as error:
-                print(
-                    "[OUTBOX DISPATCH ERROR]",
-                    repr(error),
-                    flush=True
+            except Exception:
+                logger.exception(
+                    "Failed to trigger notification outbox dispatcher "
+                    "for conversation %s",
+                    self.conversation_id
                 )
 
 
@@ -225,7 +237,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 self.channel_name
             )
 
-        print(f"WebSocket disconnected: {close_code}")
+            logger.info(
+                "WebSocket disconnected: user=%s conversation=%s close_code=%s",
+                self.user.id if hasattr(self, "user") else None,
+                getattr(self, "conversation_id", None),
+                close_code
+            )
 
     async def mark_as_read(self):
         count = await mark_messages_as_read(

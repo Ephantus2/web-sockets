@@ -12,6 +12,10 @@ from asgiref.sync import async_to_sync
 from chat.models import Message
 from .models import Notification, NotificationOutbox
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 User = get_user_model()
 
 @shared_task(
@@ -82,9 +86,9 @@ def create_message_notifications(self, message_id, recipient_ids, outbox_id=None
             completed_at=timezone.now()
         )
 
-        print(
-            f"[OUTBOX] Event {outbox_id} completed successfully.",
-            flush=True
+        logger.info(
+            "Outbox event %s completed successfully.",
+            outbox_id
         )
 
     return len(notifications)
@@ -116,9 +120,9 @@ def dispatch_pending_notification_outbox(batch_size=50):
     )
 
     if failed_count:
-        print(
-            f"[OUTBOX] {failed_count} events moved to dead-letter state.",
-            flush=True
+        logger.warning(
+            "%s outbox events moved to dead-letter state",
+            failed_count
         )
 
     # STEP 2: Find eligible pending events.
@@ -184,9 +188,9 @@ def dispatch_pending_notification_outbox(batch_size=50):
                     "last_error"
                 ])
 
-                print(
-                    f"[OUTBOX ERROR] Event {outbox.id}: {error}",
-                    flush=True
+                logger.exception(
+                    "Failed to dispatch outbox event %s",
+                    outbox.id
                 )
 
             else:
@@ -203,9 +207,9 @@ def dispatch_pending_notification_outbox(batch_size=50):
 
                 dispatched_count += 1
 
-                print(
-                    f"[OUTBOX] Event {outbox.id} dispatched successfully.",
-                    flush=True
+                logger.info(
+                    "Outbox event %s dispatched successfully",
+                    outbox.id
                 )
 
     return dispatched_count

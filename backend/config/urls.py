@@ -20,6 +20,7 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView
 )
+from .views import health_check
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -34,6 +35,7 @@ urlpatterns = [
         TokenRefreshView.as_view(),
         name="token-refresh"
     ),
+    path("health/", health_check, name="health-check"),
 
     #chat APIs
     path("api/", include("chat.urls")),

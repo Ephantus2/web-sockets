@@ -354,3 +354,5 @@ LOGGING = {
 
 # Requests taking longer than this are considered slow.
 SLOW_REQUEST_THRESHOLD_MS = 1000
+
+SLOW_DATABASE_QUERY_THRESHOLD_MS = 100

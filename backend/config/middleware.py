@@ -3,6 +3,8 @@ import time
 from django.conf import settings
 import uuid
 from contextvars import ContextVar
+from django.contrib.postgres import operations
+from django.db import connection
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +41,53 @@ class RequestLoggingMiddleware:
         # Record when the request starts
         start_time = time.perf_counter()
 
+        query_metrics = {
+            "count": 0,
+            "slow_count": 0,
+        }
+
+        def query_monitoring_wrapper(
+                execute,
+                sql,
+                params,
+                many,
+                context
+        ):
+            query_start = time.perf_counter()
+
+            try:
+                return execute(sql, params, many, context)
+            finally:
+                query_duration = (
+                    time.perf_counter() - query_start
+                ) * 1000
+                query_duration = round(query_duration, 2)
+                query_metrics["count"] += 1
+
+                threshold = getattr(
+                    settings,
+                    "SLOW_DATABASE_QUERY_THRESHOLD_MS",
+                    100
+                )
+
+                if query_duration >= threshold:
+                    query_metrics["slow_count"] += 1
+                    # log the sql operation type, not sql parameters
+
+                    operation = sql.strip().split(" ", 1)[0].upper()
+
+                    logger.warning(
+                        "SLOW DATABASE QUERY: request_id=%s "
+                        "operation=%s duration_ms=%s",
+                        request_id,
+                        operation,
+                        query_duration
+                    )
+
         #process the request and get the response
         try:
-
-            response = self.get_response(request)
+            with connection.execute_wrapper(query_monitoring_wrapper):
+                response = self.get_response(request)
 
             # calculate request processing duration
 
@@ -54,7 +99,9 @@ class RequestLoggingMiddleware:
 
             log_message = (
                 "HTTP request: request_id=%s "
-                "method = %s path=%s status=%s duration_ms=%s"
+                "method = %s path=%s status=%s "
+                "duration_ms=%s query_count=%s "
+                "slow_query_count=%s"
             )
 
             log_arguments = (
@@ -62,7 +109,9 @@ class RequestLoggingMiddleware:
                 request.method,
                 request.path,
                 response.status_code,
-                duration_ms
+                duration_ms,
+                query_metrics["count"],
+                query_metrics["slow_count"]
             )
 
             # Detect slow requests

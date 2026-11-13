@@ -284,16 +284,23 @@ X_FRAME_OPTIONS = "DENY"
 LOGGING = {
     "version": 1,
 
-    # Keep existing loggers active.
     "disable_existing_loggers": False,
 
     "formatters": {
         "verbose": {
             "format": (
                 "{asctime} | {levelname} | "
+                "request_id={request_id} | "
                 "{name} | {message}"
             ),
             "style": "{",
+        },
+    },
+
+    # NEW: Request ID filter
+    "filters": {
+        "request_id": {
+            "()": "config.middleware.RequestIDFilter",
         },
     },
 
@@ -301,6 +308,9 @@ LOGGING = {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
+
+            # NEW: Attach request IDs to log records
+            "filters": ["request_id"],
         },
     },
 
@@ -308,6 +318,12 @@ LOGGING = {
         "django": {
             "handlers": ["console"],
             "level": "INFO",
+            "propagate": False,
+        },
+
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
             "propagate": False,
         },
 
@@ -322,6 +338,11 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        "config.middleware": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 
     "root": {
@@ -330,6 +351,6 @@ LOGGING = {
     },
 }
 
-# requests taking longer thatn this sre considered slow
 
+# Requests taking longer than this are considered slow.
 SLOW_REQUEST_THRESHOLD_MS = 1000

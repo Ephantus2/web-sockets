@@ -180,6 +180,195 @@ class ChatConsumerTests(TransactionTestCase):
 
         async_to_sync(run_test)()
 
+    def test_user_can_recover_missed_messages(self):
+        first_message = Message.objects.create(
+            conversation = self.conversation,
+            sender = self.alice,
+            content="First offline message"
+        )
+
+        second_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="Second offline message"
+        )
+
+        token = self.get_token(self.alice)
+
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{self.conversation.id}/?token={token}",
+            headers=[
+                (b"origin", b"http://testserver")
+            ]
+        )
+
+        async def run_test():
+            connected, close_code = await communicator.connect()
+
+            self.assertTrue(
+                connected,
+                f"Connection rejected. Close code: {close_code}"
+            )
+
+            await communicator.receive_json_from()
+
+            await communicator.send_json_to({
+                "type": "sync",
+                "last_message_id": 0
+            })
+
+            response = await communicator.receive_json_from()
+
+            self.assertEqual(response["type"], "sync_batch")
+            self.assertEqual(len(response["messages"]), 2)
+            self.assertEqual(response["messages"][0]["id"], first_message.id)
+            self.assertEqual(response["messages"][1]["id"], second_message.id)
+            self.assertFalse(response["has_more"])
+            self.assertEqual(
+                response["next_cursor"],
+                second_message.id
+            )
+
+            await communicator.disconnect()
+            async_to_sync(run_test)()
+
+    def test_message_recovery_supports_pagination(self):
+        messages = [
+            Message(
+                conversation = self.conversation,
+                sender=self.alice,
+                content=f"Offline message {i}"
+            )
+            for i in range(105)
+        ]
+
+        Message.objects.bulk_create(messages)
+
+        token = self.get_token(self.alice)
+
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{self.conversation.id}/?token={token}",
+            headers = [
+                (b"origin", b"http://testserver")
+            ]
+        )
+
+        async def run_test():
+            connected, close_code = await communicator.connect()
+
+            self.assertTrue(
+                connected,
+                f"Connection rejected. Close code: {close_code}"
+            )
+
+            await communicator.receive_json_from()
+
+            # Request the firs batch.
+
+            await communicator.send_json_to(
+                {
+                    "type": "sync",
+                    "last_message_id": 0
+                }
+            )
+
+            first_batch = await communicator.receive_json_from()
+
+            self.assertEqual(len(first_batch["messages"]), 100)
+            self.assertTrue(first_batch["has_more"])
+
+            # Request the next batch using the returned cursor.
+
+            await communicator.send_json_to({
+                "type": "sync",
+                "last_message_id": first_batch["next_cursor"]
+            })
+
+            second_batch = await communicator.receive_json_from()
+
+            self.assertEqual(len(second_batch["messages"]), 5)
+            self.assertFalse(second_batch["has_more"])
+
+            await communicator.disconnect()
+
+            async_to_sync(run_test)()
+
+    def test_sync_rejects_invalid_last_message_id(self):
+        token = self.get_token(self.alice)
+
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{self.conversation.id}/?token={token}",
+            headers = [
+                (b"origin", b"http://testserver")
+            ]
+        )
+
+        async def run_test():
+            connected, close_code = await communicator.connect()
+
+            self.assertTrue(connected)
+            await communicator.receive_json_from()
+
+            await communicator.send_json_to({
+                "type": "sync",
+                "last_message_id": -1
+            })
+
+            response = await communicator.receive_json_from()
+
+            self.assertEqual(
+                response["type"],
+                "error"
+            )
+            self.assertIn(
+                "Invalid",
+                response["message"]
+            )
+
+            await communicator.disconnect()
+
+            async_to_sync(run_test)()
+
+    def test_sync_returns_empty_batch_when_no_message_are_missed(self):
+        token = self.get_token(self.alice)
+
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{self.conversation.id}/?token={token}",
+            headers = [
+                (b"origin", b"http://testserver")
+            ]
+        )
+
+        async def run_test():
+            connected, _ = await communicator.connect()
+            self.assertTrue(connected)
+
+            self.assertTrue(connected)
+
+            await communicator.receive_json_from()
+
+            await communicator.send_json_to({
+                "type": "sync",
+                "last_message_id": 0
+            })
+
+            response = await communicator.receive_json_from()
+
+            self.assertEqual(response["type"], "sync_batch")
+
+            self.assertEqual(response["message"], [])
+
+            self.assertFalse(response["has_more"])
+
+            self.assertEqual(response["next_cursor"], 0)
+
+            await communicator.disconnect()
+            async_to_sync(run_test)()
+
     @database_sync_to_async
     def message_exists(self):
         return Message.objects.filter(

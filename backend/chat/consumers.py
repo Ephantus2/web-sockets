@@ -114,6 +114,48 @@ def get_unread_message_count(conversation_id, user):
     ).exclude(
         read_receipts__user=user
     ).count()
+
+@database_sync_to_async
+def get_missed_messages(conversation_id, user, last_message_id):
+    # Confirm that the user belongs to this conversation.
+
+    is_member = Conversation.objects.filter(
+        id=conversation_id,
+        participants=user
+    ).exists()
+
+    if not is_member:
+        return None
+
+    # Retrieve messages created after the client's last received message.
+
+    messages = list(Message.objects.filter(
+        conversation_id=conversation_id,
+        id__gt=last_message_id
+    ).select_related(
+        "sender",
+    ).order_by("id")[:101]
+    )
+
+    has_more = len(messages) > 100
+    messages = messages[:100]
+
+    serialized_messages = [
+        {
+            "id": message.id,
+            "conversation": message.conversation_id,
+            "sender": str(message.sender),
+            "content": message.content,
+            "created_at": message.created_at.isoformat()
+        }
+        for message in messages
+    ]
+
+    return {
+        "messages": serialized_messages,
+        "has_more": has_more
+    }
+
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
     
@@ -165,6 +207,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }))
             return
         message_type = data.get("type", "message")
+
+        if message_type == "sync":
+            last_message_id = data.get("last_message_id", 0)
+
+            if (
+                not isinstance(last_message_id, int)
+                or isinstance(last_message_id, bool)
+                or last_message_id < 0
+            ):
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "message": "Invalid last_massage_id."
+                }))
+
+                return
+            await self.sync_messages(last_message_id)
+            return
 
         if message_type == "read":
             await self.mark_as_read()
@@ -222,7 +281,32 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     self.conversation_id
                 )
 
+    async def sync_messages(self, last_message_id):
+        result = await get_missed_messages(
+            self.conversation_id,
+            self.user,
+            last_message_id
+        )
 
+        if result is None:
+            await self.close(code=4403)
+            return
+
+        messages = result["messages"]
+
+        next_cursor = (
+            messages[-1]["id"]
+            if messages
+            else last_message_id
+        )
+
+        await self.send(text_data=json.dumps({
+            "type": "sync_batch",
+            "conversation_id": self.conversation_id,
+            "messages": messages,
+            "next_cursor": next_cursor,
+            "has_more": result["has_more"]
+        }))
 
     async def chat_message(self, event):
         await self.send(text_data = json.dumps({

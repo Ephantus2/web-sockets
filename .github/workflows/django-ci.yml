@@ -66,3 +66,6 @@ jobs:
       - name: Run automated tests
         working-directory: backend
         run: python manage.py test chat.tests
+      - name: Collect static files
+        working-directory: backend
+        run: python manage.py collectstatic --no-input

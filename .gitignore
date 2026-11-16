@@ -9,6 +9,7 @@ venv/
 env/
 .venv/
 ENV/
+venv312/
 
 # Django
 *.log
@@ -48,3 +49,5 @@ dist/
 
 # Jupyter
 .ipynb_checkpoints/
+
+celerybeat-schedule*

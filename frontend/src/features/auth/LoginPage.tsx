@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { LockKeyhole, User, Eye, EyeOff } from "lucide-react";
-
-import { authService } from "./authService";
-import { tokenStorage } from "../../utils/tokenStorage";
+import { useAuth } from "../../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 const LoginPage = () => {
     const [username, setUsername] = useState("");
@@ -10,6 +9,9 @@ const LoginPage = () => {
     const [showPassword, setShowPassword] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState("")
+    const {login} = useAuth();
+    
+    const navigate = useNavigate();
 
     const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -18,16 +20,16 @@ const LoginPage = () => {
         setError("")
 
         try{
-            const tokens = await authService.login({
+            await login({
                 username,
                 password
-            });
+            })
 
-            tokenStorage.saveTokens(tokens.access, tokens.refresh)
-            console.log("Login successful!")
+            navigate("/dashboard", {replace: true})
         } catch (err){
             console.error(err);
-            setError("Invalid username or password");
+            setError("Login error");
+            setError("Invalid username or password.")
         } finally {
             setLoading(false);
         }

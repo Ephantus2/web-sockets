@@ -14,22 +14,48 @@ interface IncomingMessage {
   message: Message;
 }
 
-type ServerEvent = ConnectionMessage | IncomingMessage;
+interface SyncBatchMessage {
+  type: "sync_batch";
+  conversation_id: number;
+  messages: Message[];
+  next_cursor: number;
+  has_more: boolean;
+}
+
+interface ReadReceiptMessage {
+    type: "read_receipt";
+    user: string;
+    conversation_id: number | string;
+    count: number;
+    unread_count: number;
+}
+
+type ServerEvent =
+  | ConnectionMessage
+  | IncomingMessage
+  | SyncBatchMessage
+  | ReadReceiptMessage;
 
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 30000;
 
 export function useChatSocket(
   conversationId: number | null,
-  onMessageReceived: (message: Message) => void
+  onMessageReceived: (message: Message) => void,
+  lastMessageId = 0
 ) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const shouldReconnectRef = useRef(true);
+  const lastMessageIdRef = useRef(lastMessageId);
+
+  // Keep the latest message ID without restarting the WebSocket effect.
+  lastMessageIdRef.current = lastMessageId;
 
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [readReceipt, setReadReceipt] = useState<ReadReceiptMessage | null>(null);
 
   const sendMessage = useCallback((content: string) => {
     const socket = socketRef.current;
@@ -38,12 +64,10 @@ export function useChatSocket(
       throw new Error("WebSocket is not connected.");
     }
 
-    socket.send(
-      JSON.stringify({
-        type: "message",
-        message: content,
-      })
-    );
+    socket.send(JSON.stringify({
+      type: "message",
+      message: content,
+    }));
   }, []);
 
   useEffect(() => {
@@ -53,6 +77,41 @@ export function useChatSocket(
     reconnectAttemptsRef.current = 0;
 
     let active = true;
+
+    const requestSync = (cursor: number) => {
+      const socket = socketRef.current;
+
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+      socket.send(JSON.stringify({
+        type: "sync",
+        last_message_id: cursor,
+      }));
+    };
+
+    const scheduleReconnect = () => {
+      if (!active || !shouldReconnectRef.current) return;
+
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+
+      const delay = Math.min(
+        INITIAL_RECONNECT_DELAY * 2 ** reconnectAttemptsRef.current,
+        MAX_RECONNECT_DELAY
+      );
+
+      reconnectAttemptsRef.current += 1;
+
+      setConnectionError(
+        `Connection lost. Reconnecting in ${Math.round(delay / 1000)} seconds...`
+      );
+
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, delay);
+    };
 
     const connect = () => {
       if (!active || !shouldReconnectRef.current) return;
@@ -91,11 +150,41 @@ export function useChatSocket(
 
           if (data.type === "connection_established") {
             console.log(data.message);
+
+            // Recover messages missed while disconnected.
+            requestSync(lastMessageIdRef.current);
+
+            // Tell Django that this user has opened the conversation.
+            socket.send(JSON.stringify({
+                type: "read",
+            }))
+
             return;
           }
 
           if (data.type === "chat_message") {
             onMessageReceived(data.message);
+            return;
+          }
+
+          console.log("WEBSOCKET EVENT:", data)
+
+          if(data.type === "read_receipt")  {
+            setReadReceipt(data);
+            console.log("Read receipt received:", data);
+            return;
+          }
+
+          if (data.type === "sync_batch") {
+            // Add recovered messages to the chat.
+            data.messages.forEach(onMessageReceived);
+
+            // Fetch another batch if the server has more.
+            if (data.has_more) {
+              requestSync(data.next_cursor);
+            }
+
+            return;
           }
         } catch (error) {
           console.error("Invalid WebSocket event:", error);
@@ -114,6 +203,7 @@ export function useChatSocket(
 
         if (event.code === 4401 || event.code === 4403) {
           shouldReconnectRef.current = false;
+
           setConnectionError(
             event.code === 4401
               ? "Authentication failed. Please log in again."
@@ -124,31 +214,6 @@ export function useChatSocket(
 
         scheduleReconnect();
       };
-    };
-
-    const scheduleReconnect = () => {
-      if (!active || !shouldReconnectRef.current) return;
-
-      if (reconnectTimerRef.current !== null) {
-        clearTimeout(reconnectTimerRef.current);
-      }
-
-      const delay = Math.min(
-        INITIAL_RECONNECT_DELAY *
-          2 ** reconnectAttemptsRef.current,
-        MAX_RECONNECT_DELAY
-      );
-
-      reconnectAttemptsRef.current += 1;
-
-      setConnectionError(
-        `Connection lost. Reconnecting in ${Math.round(delay / 1000)} seconds...`
-      );
-
-      reconnectTimerRef.current = setTimeout(() => {
-        reconnectTimerRef.current = null;
-        connect();
-      }, delay);
     };
 
     connect();
@@ -173,5 +238,6 @@ export function useChatSocket(
     isConnected,
     connectionError,
     sendMessage,
+    readReceipt,
   };
 }

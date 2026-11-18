@@ -39,11 +39,14 @@ const MessagePanel = ({conversationId}: MessagePanelProps) => {
 
     // Establish the websocket connection
 
+    const lastMessageId = messages.reduce((lastId, message) => Math.max(lastId, message.id), 0);
+
     const {
         isConnected,
         connectionError,
         sendMessage,
-    } = useChatSocket(conversationId, handleIncomingMessage)
+        readReceipt,
+    } = useChatSocket(conversationId, handleIncomingMessage, lastMessageId)
 
     // send messages through the websocket
 
@@ -67,6 +70,18 @@ const MessagePanel = ({conversationId}: MessagePanelProps) => {
                 <h2 className="font-semibold text-white">Conversation #{conversationId}</h2>
 
                 <p className="mt-1 text-xs text-slate-400">{isConnected ? "Connected": "Connecting..."}</p>
+                {
+                    readReceipt && Number(readReceipt.conversation_id) === conversationId && (
+                        <p className="mt-2 text-xs text-green-400">
+                            <span className="font-semibold">
+                                {readReceipt.user}
+                            </span>
+                            {" "}read {readReceipt.count}
+                            message(s),
+                            {" "}Unread: {readReceipt.unread_count}
+                        </p>
+                    )
+                }
             </div>
 
             <div className="flex items-center gap-3">

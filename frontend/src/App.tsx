@@ -3,7 +3,6 @@ import LoginPage from "./features/auth/LoginPage"
 import ProtectedRoute from "./components/ProtectedRoute"
 import { useAuth } from "./context/AuthContext"
 import ChatPage from "./pages/ChatPage"
-
 function AppRoutes() {
 
   const {isAuthenticated} = useAuth()

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import ConversationList from "../features/conversations/ConversationList";
 import { MessageCircle } from "lucide-react";
-
+import MessagePanel from "../features/chat/MessagePanel";
 
 const ChatPage = () => {
     const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null)
@@ -19,19 +19,9 @@ const ChatPage = () => {
 
         {/* Main Chat Area */}
 
-        <section className="hidden flex-1 items-center justify-center md:flex">
-            {selectedConversationId == null ? (
-                <div className="test-center">
-                    <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-slate-800">
-                        <MessageCircle size={38}  className="text-blue-400"/>
-                    </div>
-                    <h2 className="text-xl font-semibold text-white">
-                        Welcome to RealTime Chat
-                    </h2>
-                    <p className="mt-2 text-sm text-slate-400">
-                        Select a conversation to start messaging
-                    </p>
-                </div>
+        <section className={`h-full flex-1 ${selectedConversationId !== null ? "block" : "hidden"}`}>
+            {selectedConversationId !== null ? (
+                <MessagePanel conversationId={selectedConversationId}/>
             ) : (
                 <div className="text-center">
                     <MessageCircle size={40} className="mx-auto mb-4 text-blue-400"/>

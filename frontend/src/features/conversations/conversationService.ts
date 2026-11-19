@@ -29,7 +29,7 @@ export const conversationService = {
     },
 
     async getUnreadCounts(): Promise<UnreadConversation[]> {
-        const response = await api.get<UnreadConversation[]>("/api/conversation/unread-counts/");
+        const response = await api.get<UnreadConversation[]>("/api/conversations/unread-counts/");
         return response.data
     },
 }

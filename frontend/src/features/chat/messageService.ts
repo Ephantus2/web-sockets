@@ -14,7 +14,7 @@ export const messageService = {
 
     // Retrieve older messages using Django's cursor URL
 
-    async getOlderMessage(nextUrl: string): Promise<PaginatedMessages> {
+    async getOlderMessages(nextUrl: string ): Promise<PaginatedMessages> {
         const response = await api.get<PaginatedMessages>(nextUrl);
 
         return response.data;

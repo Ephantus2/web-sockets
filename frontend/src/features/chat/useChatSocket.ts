@@ -70,6 +70,17 @@ export function useChatSocket(
     }));
   }, []);
 
+  const markAsRead = useCallback(() => {
+    const socket = socketRef.current;
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+    }
+    socket.send(JSON.stringify({
+        type: "read"
+    }));
+  }, [])
+
   useEffect(() => {
     if (conversationId === null) return;
 
@@ -239,5 +250,6 @@ export function useChatSocket(
     connectionError,
     sendMessage,
     readReceipt,
+    markAsRead,
   };
 }

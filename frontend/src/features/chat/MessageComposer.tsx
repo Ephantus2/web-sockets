@@ -1,18 +1,54 @@
-import {useState, type FormEvent} from "react";
+import {useState, useRef,  useEffect, type FormEvent} from "react";
 import { Send } from "lucide-react";
 
 interface MessageComposerProps {
     onSend: (content: string) => Promise<void>;
+    onTyping: (isTyping: boolean) => void;
     disabled?: boolean;
 }
 
 function MessageComposer({
     onSend,
+    onTyping,
     disabled=false
 }: MessageComposerProps) {
     const [content, setContent] = useState("");
     const [sending, setSending] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isTypingRef = useRef(false)
+
+    const handleTyping = (value: string) => {
+        setContent(value);
+
+        if (!value.trim()) {
+            if (typingTimerRef.current) {
+                clearTimeout(typingTimerRef.current)
+                typingTimerRef.current = null;
+            }
+
+            if (isTypingRef.current) {
+                onTyping(false)
+                isTypingRef.current = false
+            }
+            return
+        }
+
+        if (!isTypingRef.current){
+            onTyping(true)
+            isTypingRef.current = true;
+        }
+
+        if (typingTimerRef.current) {
+            clearTimeout(typingTimerRef.current)
+        }
+
+        typingTimerRef.current = setTimeout(() => {
+            onTyping(false)
+            isTypingRef.current = false;
+            typingTimerRef.current = null
+        }, 2000);
+    }
 
     const handleSubmit = async (event:FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -24,6 +60,16 @@ function MessageComposer({
             setSending(true);
             await onSend(trimmedContent);
             setContent("")
+
+            if (typingTimerRef.current) {
+                clearTimeout(typingTimerRef.current);
+                typingTimerRef.current = null
+            }
+
+            if (isTypingRef.current) {
+                onTyping(false)
+                isTypingRef.current = false;
+            }
         } catch (error) {
             console.error(
                 "Failed to send message:", error
@@ -34,6 +80,17 @@ function MessageComposer({
         }
     }
 
+    useEffect(() => {
+        return () => {
+            if (typingTimerRef.current) {
+                clearTimeout(typingTimerRef.current)
+            }
+            if (isTypingRef.current) {
+                onTyping(false)
+            }
+        }
+    }, [onTyping])
+
     return(
         <form onSubmit={handleSubmit}
         className="flex items-center gap-3 border-t border-slate-800 bg-slate-900 p-4"
@@ -41,7 +98,7 @@ function MessageComposer({
             <input 
             type="text"
             value={content}
-            onChange={(event) => setContent(event.target.value)}
+            onChange={(event) => handleTyping(event.target.value)}
             placeholder="Type your message..."
             maxLength={5000}
             disabled={disabled || sending}

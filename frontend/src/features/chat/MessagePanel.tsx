@@ -87,6 +87,8 @@ const MessagePanel = ({conversationId}: MessagePanelProps) => {
         sendMessage,
         readReceipt,
         markAsRead,
+        sendTyping,
+        typingUsers,
     } = useChatSocket(conversationId, handleIncomingMessage, lastMessageId)
 
     useEffect(() => {
@@ -361,11 +363,23 @@ const MessagePanel = ({conversationId}: MessagePanelProps) => {
             </div>
             <div ref={bottomRef} />
         </div>
+        {/* Typing indicator */}
+
+        {typingUsers.length > 0 && (
+            <div className="border-t border-slate-800 px-5 py-2">
+                <p className="text-xs italic text-blue-400">
+                    {typingUsers.length === 1 ? `${typingUsers[0]} is typing...` 
+                    : typingUsers.length === 2 ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
+                : `${typingUsers.length} people are typing` }
+                </p>
+            </div>
+        )}
 
         {/* Message input */}
 
         <MessageComposer
         onSend={handleSendMessage}
+        onTyping={sendTyping}
         disabled={!isConnected}
          />
     </div>

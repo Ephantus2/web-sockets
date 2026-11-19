@@ -30,11 +30,18 @@ interface ReadReceiptMessage {
     unread_count: number;
 }
 
+interface TypingMessage {
+  type: "typing",
+  user: string,
+  is_typing: boolean;
+}
+
 type ServerEvent =
   | ConnectionMessage
   | IncomingMessage
   | SyncBatchMessage
-  | ReadReceiptMessage;
+  | ReadReceiptMessage
+  | TypingMessage;
 
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 30000;
@@ -56,6 +63,7 @@ export function useChatSocket(
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [readReceipt, setReadReceipt] = useState<ReadReceiptMessage | null>(null);
+  const [typingUsers, setTypingUsers] = useState<string[]>([])
 
   const sendMessage = useCallback((content: string) => {
     const socket = socketRef.current;
@@ -79,6 +87,24 @@ export function useChatSocket(
     socket.send(JSON.stringify({
         type: "read"
     }));
+  }, [])
+
+  const sendTyping = useCallback((isTyping: boolean) => {
+    const socket = socketRef.current;
+
+    console.log("SEND TYPING CALLED:", isTyping)
+    console.log("WEBSOCKET STATE:", socket?.readyState)
+
+    if (!socket || socket.readyState !== WebSocket.OPEN){
+      console.log("WEBSOCKET NOT OPEN - TYPING NOT SENT :", socket?.readyState)
+      return;
+    }
+
+    socket.send(JSON.stringify({
+      type: "typing",
+      is_typing: isTyping
+    }))
+    console.log("TYPING EVENT SENT")
   }, [])
 
   useEffect(() => {
@@ -186,6 +212,21 @@ export function useChatSocket(
             return;
           }
 
+          if(data.type === "typing") {
+            setTypingUsers((previousUsers) => {
+              if(data.is_typing){
+                if(previousUsers.includes(data.user)) {
+                  return previousUsers
+                }
+                return [...previousUsers, data.user];
+              } 
+              return previousUsers.filter(
+                (user) => user !== data.user
+              )
+            })
+            return
+          }
+
           if (data.type === "sync_batch") {
             // Add recovered messages to the chat.
             data.messages.forEach(onMessageReceived);
@@ -210,6 +251,7 @@ export function useChatSocket(
         if (!active) return;
 
         setIsConnected(false);
+        setTypingUsers([])
         console.log("WebSocket disconnected:", event.code);
 
         if (event.code === 4401 || event.code === 4403) {
@@ -251,5 +293,7 @@ export function useChatSocket(
     sendMessage,
     readReceipt,
     markAsRead,
+    sendTyping,
+    typingUsers
   };
 }

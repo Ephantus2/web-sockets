@@ -26,6 +26,7 @@ interface ReadReceiptMessage {
     type: "read_receipt";
     user: string;
     conversation_id: number | string;
+    message_ids: number[];
     count: number;
     unread_count: number;
 }

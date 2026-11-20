@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
+
 from .models import Notification
 from .serializers import NotificationSerializer
 
@@ -21,7 +22,9 @@ class NotificationListView(APIView):
         unread_only = request.query_params.get("unread")
 
         if unread_only == "true":
-            notifications = notifications.filter(is_read=False)
+            notifications.filter(is_read=False)
+
+        notifications = notifications.order_by("-created_at")[:50]
 
         serializer = NotificationSerializer(
             notifications,

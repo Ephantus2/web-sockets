@@ -4,6 +4,7 @@ export interface Message {
     sender: string;
     content: string;
     created_at: string;
+    read_by: string[];
 }
 
 export interface PaginatedMessages {

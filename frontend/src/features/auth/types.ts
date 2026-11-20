@@ -7,3 +7,10 @@ export interface AuthTokens {
     access: string;
     refresh: string;
 }
+
+export interface CurrentUser {
+    id: number;
+    username: string;
+    email: string;
+}
+

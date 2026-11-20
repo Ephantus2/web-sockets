@@ -96,7 +96,7 @@ class MessageListCreateView(APIView):
 
         messages = Message.objects.filter(
             conversation=conversation
-        ).select_related("sender").order_by("-id")
+        ).select_related("sender").prefetch_related("read_receipts__user").order_by("-id")
 
         #create paginator
         paginator = MessageCursorPagination()
@@ -260,6 +260,8 @@ class MessageSearchView(APIView):
             search=search_query
         ).select_related(
             "sender"
+        ).prefetch_related(
+            "read_receipts__user"
         ).order_by(
             "-rank",
             "-id"

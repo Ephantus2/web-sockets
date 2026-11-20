@@ -84,18 +84,16 @@ def mark_messages_as_read(conversation_id, user):
         read_receipts__user=user
     )
 
-    now = timezone.now()
+    message_ids = list(
+        unread_messages.values_list("id", flat=True)
+    )
 
     read_records = [
         MessageRead(
             message_id=message_id,
-            user=user,
-            read_at=now
+            user=user
         )
-        for message_id in unread_messages.values_list(
-            "id",
-            flat=True
-        )
+        for message_id in message_ids
     ]
 
     MessageRead.objects.bulk_create(
@@ -103,7 +101,7 @@ def mark_messages_as_read(conversation_id, user):
         ignore_conflicts=True
     )
 
-    return len(read_records)
+    return message_ids
 
 @database_sync_to_async
 def get_unread_message_count(conversation_id, user):
@@ -228,6 +226,28 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if message_type == "read":
             await self.mark_as_read()
             return
+
+        if message_type == "typing":
+            print("TYPING EVENT RECEIVED")
+            is_typing = data.get("is_typing", False)
+
+            if not isinstance(is_typing, bool):
+                await self.send(text_data = json.dumps({
+                    "type": "error",
+                    "message": "Invalid typing status."
+                }))
+
+                return
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    "type": "typing_indicator",
+                    "user": str(self.user),
+                    "is_typing": is_typing
+                }
+            )
+
+            return
         
         content = data.get("message", "")
         if not isinstance(content, str) or not content.strip():
@@ -308,6 +328,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "has_more": result["has_more"]
         }))
 
+    async def typing_indicator(self, event):
+        print("BROADCASTING TYPING EVENT:", event)
+        # dont send the typing indicator back to the sender
+        if event["user"] == str(self.user):
+            return
+        
+        await self.send(text_data=json.dumps({
+            "type": "typing",
+            "user": event["user"],
+            "is_typing": event["is_typing"]
+        }))
+
     async def chat_message(self, event):
         await self.send(text_data = json.dumps({
             "type": "chat_message",
@@ -329,7 +361,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
 
     async def mark_as_read(self):
-        count = await mark_messages_as_read(
+        message_ids = await mark_messages_as_read(
             self.conversation_id,
             self.user
         )
@@ -345,7 +377,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "type": "read_receipt",
                 "user": str(self.user),
                 "conversation_id": self.conversation_id,
-                "count": count,
+                "message_ids": message_ids,
+                "count": len(message_ids),
                 "unread_count": unread_count
             }
         )
@@ -356,6 +389,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "type": "read_receipt",
                 "user": event["user"],
                 "conversation_id": event["conversation_id"],
+                "message_ids": event["message_ids"],
                 "count": event["count"],
                 "unread_count": event["unread_count"]
             })

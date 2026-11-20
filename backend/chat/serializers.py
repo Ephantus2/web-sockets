@@ -28,6 +28,7 @@ class ConversationSerializer(serializers.ModelSerializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     sender = serializers.StringRelatedField(read_only=True)
+    read_by=serializers.SerializerMethodField()
 
     class Meta:
         model = Message
@@ -36,12 +37,21 @@ class MessageSerializer(serializers.ModelSerializer):
             "conversation",
             "sender",
             "content",
-            "created_at"
+            "created_at",
+            "read_by"
         ]
 
         read_only_fields = [
             "id",
             "conversation",
             "sender",
-            "created_at"
+            "created_at",
+            "read_by",
         ]
+    def get_read_by(self, obj):
+        return list(
+            obj.read_receipts.select_related("user").values_list(
+                "user__username",
+                flat=True
+            )
+        )

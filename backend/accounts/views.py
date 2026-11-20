@@ -4,7 +4,7 @@ import secrets
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from rest_framework import status
 
@@ -74,3 +74,13 @@ class AdminBootstrapView(APIView):
             {"message": "Administrator created successfully."},
             status=status.HTTP_201_CREATED
         )
+
+class CurrentUserView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            "id": request.user.id,
+            "username": request.user.username,
+            "email": request.user.email
+        })

@@ -21,7 +21,7 @@ const ChatPage = () => {
         {/* Main Application Layout */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
             {/* Left Sidebar */}
-            <section className="h-full w-full border-r border-slate-800 md:w-80 lg:w-96">
+            <section className={`h-full w-full border-r border-slate-800 md:w-80 lg:w-96 ${selectedConversationId !== null ? "hidden" : "block"}`}>
                 <ConversationList selectedConversationId={selectedConversationId} onSelectConversation={setSelectedConversationId} />
             </section>
 
@@ -30,7 +30,7 @@ const ChatPage = () => {
             className={`h-full min-w-0 flex-1 ${selectedConversationId !== null ? "block" : "hidden"} md:block`}
             >
                 {selectedConversationId !== null ? (
-                    <MessagePanel conversationId={selectedConversationId} /> ) : (
+                    <MessagePanel conversationId={selectedConversationId} onBack={() => setSelectedConversationId(null)} /> ) : (
                         <div className="flex h-full items-center justify-center text-center">
                             <div>
                                 <MessageCircle size={40} className="mx-auto mb-4 text-blue-400" />

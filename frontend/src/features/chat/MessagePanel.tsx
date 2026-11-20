@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState} from "react"
-import { MessageCircle, RefreshCw, Search, X} from "lucide-react"
+import { MessageCircle, RefreshCw, Search, X,  ArrowLeft} from "lucide-react"
 
 import { useMessages } from "./useMessages"
 import { useChatSocket } from "./useChatSocket"
@@ -9,9 +9,10 @@ import type { Message } from "./types"
 
 interface MessagePanelProps {
     conversationId: number;
+    onBack: () => void;
 }
 
-const MessagePanel = ({conversationId}: MessagePanelProps) => {
+const MessagePanel = ({conversationId, onBack}: MessagePanelProps) => {
     const {
         messages,
         setMessages,
@@ -148,7 +149,15 @@ const MessagePanel = ({conversationId}: MessagePanelProps) => {
     <div className="flex h-full flex-col bg-slate-950">
         {/* Header */}
         <header className="flex items-center justify-between border-b border-slate-800 p-5">
-            <div>
+            <div className="flex min-w-0 items-center gap-3">
+                <button
+                onClick={onBack}
+                className="shrink-0 rounded-lg p-2 text-slate-400
+                hover:bg-slate-800 hover:text-white md:hidden"
+                >
+                    <ArrowLeft size={20} />
+                </button>
+                <div>
                 <h2 className="font-semibold text-white">Conversation #{conversationId}</h2>
 
                 <p className="mt-1 text-xs text-slate-400">{isConnected ? "Connected": "Connecting..."}</p>
@@ -164,6 +173,7 @@ const MessagePanel = ({conversationId}: MessagePanelProps) => {
                         </p>
                     )
                 }
+                </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -295,7 +305,7 @@ const MessagePanel = ({conversationId}: MessagePanelProps) => {
 
         {/* Messages */}
 
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-5">
+        <div ref={messagesContainerRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:p-5">
             {loading && messages.length === 0 && (
                 <p className="py-10 text-center text-sm text-slate-400">
                     Loading Messages...
@@ -349,7 +359,7 @@ const MessagePanel = ({conversationId}: MessagePanelProps) => {
                     </div>
                 )}
                 {messages.map((message) => (
-                    <div key={message.id} className="max-w-2xl">
+                    <div key={message.id} className="max-w-[90%] sm:max-w-2xl">
                         <div className="mb-1 text-xs text-slate-500">
                             {message.sender}
                         </div>

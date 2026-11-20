@@ -15,6 +15,8 @@ const NotificationBell = ({onOpenConversation}: NotificationBellProps) => {
     unreadCount,
     markAsRead,
     markAllAsRead,
+    isConnected,
+    connectionError,
   } = useNotifications();
 
   return (
@@ -25,6 +27,12 @@ const NotificationBell = ({onOpenConversation}: NotificationBellProps) => {
       aria-label="Notifications"
         >
         <Bell size={22} />
+        <span className={`absolute bottom-1 right-1 h-2.5 w-2.5
+          rounded-full border-2 border-slate-950 ${
+            isConnected ? "bg-green-500" : "bg-red-500"
+          }`} 
+          title={isConnected ? "Live notifications connected" : "Disconnected"}
+          />
         {unreadCount > 0 && (
           <span
           className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center
@@ -71,6 +79,12 @@ const NotificationBell = ({onOpenConversation}: NotificationBellProps) => {
             </button>
           </div>
         </div>
+
+        {connectionError && (
+          <p className="border-b border-slate-800 px-4 py-2 text-xs text-red-400">
+            {connectionError}
+          </p>
+        )}
         {/* Notification list */}
         <div className="max-h-96 overflow-y-auto">
             {loading && (

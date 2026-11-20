@@ -2,10 +2,27 @@ import { useCallback, useEffect, useState } from "react";
 import { notificationService } from "./notificationService";
 import type { Notification } from "./types";
 
+import { useNotificationSocket } from "./useNotificationSocket";
+
 export function useNotifications() {
     const [notifications, setNotifications] = useState<Notification[]>([])
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null)
+
+    // Handle notifications received through WebSocket
+
+    const handleIncomingNotification = useCallback((notification: Notification) => {
+        setNotifications((previousNotifications) => [
+            notification,
+            ...previousNotifications.filter((item) => item.id !== notification.id),
+        ].slice(0, 50));
+    }, [])
+
+    const {
+        isConnected,
+        connectionError,
+    } = useNotificationSocket(handleIncomingNotification)
+
 
     // calculate unread notifications
 
@@ -28,6 +45,14 @@ export function useNotifications() {
             setLoading(false)
         }
     }, []);
+
+    //  Recover notifications after WebSocket connection or reconnection
+
+    useEffect(() => {
+        if (isConnected) {
+            fetchNotifications();
+        }
+    }, [isConnected, fetchNotifications])
 
     // Mark one notification as read
 
@@ -58,13 +83,6 @@ export function useNotifications() {
 
     useEffect(() => {
         fetchNotifications();
-        const intervalId = setInterval(() => {
-            fetchNotifications();
-        }, 10000)
-
-        return () => {
-            clearInterval(intervalId)
-        };
     }, [fetchNotifications]);
 
     return {
@@ -74,6 +92,8 @@ export function useNotifications() {
         unreadCount,
         fetchNotifications,
         markAsRead,
-        markAllAsRead
+        markAllAsRead,
+        isConnected,
+        connectionError
     }
 }

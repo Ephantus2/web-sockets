@@ -42,7 +42,16 @@ type ServerEvent =
   | IncomingMessage
   | SyncBatchMessage
   | ReadReceiptMessage
-  | TypingMessage;
+  | TypingMessage
+  | {
+    type: "message_edited";
+    message: Message
+  }
+  | {
+    type: "message_deleted";
+    message_id: number;
+    conversation_id: number;
+  }
 
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 30000;
@@ -50,7 +59,9 @@ const MAX_RECONNECT_DELAY = 30000;
 export function useChatSocket(
   conversationId: number | null,
   onMessageReceived: (message: Message) => void,
-  lastMessageId = 0
+  lastMessageId = 0,
+  onMessageEdited: (message:  Message) => void,
+  onMessageDeleted: (messageId: number) => void
 ) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -206,6 +217,16 @@ export function useChatSocket(
           }
 
           console.log("WEBSOCKET EVENT:", data)
+
+          if (data.type === "message_edited"){
+            onMessageEdited(data.message);
+            return;
+          }
+
+          if (data.type === "message_deleted") {
+            onMessageDeleted(data.message_id)
+            return
+          }
 
           if(data.type === "read_receipt")  {
             setReadReceipt(data);

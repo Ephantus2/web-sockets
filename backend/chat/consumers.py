@@ -346,6 +346,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "message": event["message"]
         }))
 
+    async def message_edited(self, event):
+        await self.send(
+            text_data=json.dumps({
+                "type": "message_edited",
+                "message": event["message"]
+            })
+        )
+
+    async def message_deleted(self, event):
+        await self.send(
+            text_data=json.dumps({
+                "type": "message_deleted",
+                "message_id": event["message_id"],
+                "conversation_id": self.conversation_id
+            })
+        )
+
     async def disconnect(self, close_code):
         if hasattr(self, "room_group_name"):
             await self.channel_layer.group_discard(

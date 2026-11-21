@@ -38,7 +38,11 @@ class MessageSerializer(serializers.ModelSerializer):
             "sender",
             "content",
             "created_at",
-            "read_by"
+            "read_by",
+            "is_edited",
+            "edited_at",
+            "is_deleted",
+            "deleted_at",
         ]
 
         read_only_fields = [
@@ -47,11 +51,12 @@ class MessageSerializer(serializers.ModelSerializer):
             "sender",
             "created_at",
             "read_by",
+            "is_edited",
+            "edited_at",
+            "is_deleted",
+            "deleted_at"
         ]
     def get_read_by(self, obj):
-        return list(
-            obj.read_receipts.select_related("user").values_list(
-                "user__username",
-                flat=True
-            )
-        )
+        return [
+            receipt.user.username for receipt in obj.read_receipts.all()
+        ]

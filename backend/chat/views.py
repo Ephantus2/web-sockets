@@ -28,6 +28,8 @@ import logging
 from notifications.models import NotificationOutbox
 from notifications.tasks import dispatch_pending_notification_outbox
 
+from django.utils import timezone
+
 logger = logging.getLogger(__name__)
 
 class ConversationListCreateView(APIView):
@@ -299,3 +301,139 @@ class UnreadCountView(APIView):
             .values("id", "name", "unread_count")
         )
         return Response(list(conversations))
+
+class MessageUpdateDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_message(self, request, conversation_id, message_id):
+        # Confirm that the user belongs to this conversation.
+
+        conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            participants=request.user
+        )
+
+        # Retrieve the message from chat conversation
+
+        message = get_object_or_404(
+            Message,
+            id=message_id,
+            conversation=conversation
+        )
+
+        # only the original sender can modify the message.
+
+        if message.sender_id != request.user.id:
+            return None, Response({
+                "error": "You can only modify your own messages."
+            }, status=status.HTTP_403_FORBIDDEN)
+        return message, None
+
+    def patch(self, request, conversation_id, message_id):
+        message, error = self.get_message(
+            request,
+            conversation_id,
+            message_id
+        )
+
+        if error:
+            return error
+
+        if message.is_deleted:
+            return Response({
+                "error": "Deleted messages cannot be edited."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        content = request.data.get("content")
+
+        if not isinstance(content, str) or not content.strip():
+            return Response({
+                "error": "Message content cannot be empty."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = MessageSerializer(
+            message,
+            data={"content": content.strip()},
+            partial=True
+        )
+
+        if serializer.is_valid():
+            message = serializer.save(
+                is_edited=True,
+                edited_at=timezone.now()
+            )
+
+            message_data = MessageSerializer(message).data
+
+            # Broadcast the edit after the database transaction commits
+
+            def broadcast_edit():
+                channel_layer = get_channel_layer()
+
+                if channel_layer is not None:
+                    async_to_sync(channel_layer.group_send)(
+                        f"chat_{conversation_id}",
+                        {
+                            "type": "message_edited",
+                            "message": message_data
+                        }
+                    )
+            transaction.on_commit(broadcast_edit)
+
+            return Response(
+                message_data,
+                status=status.HTTP_200_OK
+            )
+        
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    def delete(self, request, conversation_id, message_id):
+        message, error = self.get_message(
+            request,
+            conversation_id,
+            message_id
+        )
+
+        if error:
+            return error
+
+        if message.is_deleted:
+            return Response(
+                {"error": "Message has already been deleted."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        message.is_deleted = True
+        message.deleted_at = timezone.now()
+
+        message.save(
+            update_fields = ["is_deleted", "deleted_at"]
+        )
+
+        message_data = MessageSerializer(message).data
+
+        # Broadcast the deletion after the database transaction commits
+
+        def broadcast_delete():
+            channel_layer = get_channel_layer()
+
+            if channel_layer is not None:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{conversation_id}",
+                    {
+                        "type": "message_deleted",
+                        "message_id": message.id,
+                        "conversation_id": conversation_id
+                    }
+                )
+
+        transaction.on_commit(broadcast_delete)
+
+        return Response(
+            message_data,
+            status=status.HTTP_200_OK
+        )

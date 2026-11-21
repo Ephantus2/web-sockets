@@ -39,6 +39,24 @@ class Message(models.Model):
         auto_now_add=True
     )
 
+    is_edited = models.BooleanField(
+        default=False
+    )
+
+    edited_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    is_deleted = models.BooleanField(
+        default=False
+    )
+
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
     class Meta:
         ordering = ["created_at"]
 

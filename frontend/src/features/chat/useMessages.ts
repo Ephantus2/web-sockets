@@ -57,6 +57,18 @@ export function useMessages(conversationId: number | null){
             setLoadingOlder(false)
         }
     }, [nextUrl, loadingOlder]);
+const updateMessage = useCallback((updatedMessage: Message) => {
+    setMessages((currentMessages) => currentMessages.map((message) => message.id === updatedMessage.id ? updatedMessage : message ))
+}, [])
+
+const  markMessageDeleted = useCallback((messageId: number) => {
+    setMessages((currentMessages) => currentMessages.map((message) => message.id === messageId ? {
+        ...message,
+        is_deleted: true,
+        deleted_at: new Date().toISOString()
+    }: message))
+}, [])
+
 
     useEffect(() => {
         setMessages([]);
@@ -71,6 +83,8 @@ export function useMessages(conversationId: number | null){
  return {
     messages,
     setMessages,
+    updateMessage,
+    markMessageDeleted,
     nextUrl,
     loading,
     loadingOlder,

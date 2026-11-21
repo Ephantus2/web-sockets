@@ -41,5 +41,31 @@ export const messageService = {
         );
 
         return response.data
+    },
+
+    // Edit a message
+
+    async editMessage(
+        conversationId: number,
+        messageId: number,
+        content: string
+    ): Promise<Message>{
+        const response = await api.patch<Message>(`/api/conversations/${conversationId}/messages/${messageId}/`,
+            { content }
+        )
+
+        return response.data
+    },
+
+    // Delete an existing message
+
+    async deleteMessage(
+        conversationId: number,
+        messageId: number
+    ): Promise<Message> {
+        const response = await api.delete<Message>(
+            `/api/conversations/${conversationId}/messages/${messageId}/`
+        );
+        return response.data
     }
 }

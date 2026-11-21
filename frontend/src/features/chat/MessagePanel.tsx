@@ -1,490 +1,607 @@
-import { useCallback, useEffect, useRef, useState} from "react"
-import { MessageCircle, RefreshCw, Search, X,  ArrowLeft} from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MessageCircle, RefreshCw, Search, X, ArrowLeft } from "lucide-react";
 
-import { useMessages } from "./useMessages"
-import { useChatSocket } from "./useChatSocket"
-import MessageComposer from "./MessageComposer"
-import { messageService } from "./messageService"
-import type { Message } from "./types"
+import { useMessages } from "./useMessages";
+import { useChatSocket } from "./useChatSocket";
+import MessageComposer from "./MessageComposer";
+import { messageService } from "./messageService";
+import type { Message } from "./types";
 
-import { useAuth } from "../../context/AuthContext"
+import { useAuth } from "../../context/AuthContext";
 
 interface MessagePanelProps {
-    conversationId: number;
-    onBack: () => void;
+  conversationId: number;
+  onBack: () => void;
 }
 
-const MessagePanel = ({conversationId, onBack}: MessagePanelProps) => {
-    const {
-        messages,
-        setMessages,
-        loading,
-        loadingOlder,
-        hasMore,
-        error,
-        refreshMessages,
-        loadOlderMessages,
-    } = useMessages(conversationId)
+const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
+  const {
+    messages,
+    setMessages,
+    updateMessage,
+    markMessageDeleted,
+    loading,
+    loadingOlder,
+    hasMore,
+    error,
+    refreshMessages,
+    loadOlderMessages,
+  } = useMessages(conversationId);
 
-    const {user} = useAuth();
+  const { user } = useAuth();
 
-    const [searchQuery, setSearchQuery] = useState("");
-    const [searchResults, setSearchResults] = useState<Message[]>([])
-    const [searching, setSearching] = useState(false)
-    const [searchError, setSearchError] = useState<string | null>(null)
-    const [showSearch, setShowSearch] = useState(false)
-    const [hasSearched, setHasSearched] = useState(false)
-    const [readMessageIds, setReadMessageIds] = useState<number[]>([])
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Message[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [readMessageIds, setReadMessageIds] = useState<number[]>([]);
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
-    const bottomRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
-    const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-    const previousScrollHeightRef = useRef<number | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const previousScrollHeightRef = useRef<number | null>(null);
 
-    // Restore read indicators from messages loaded through the rest API.
+  // Restore read indicators from messages loaded through the rest API.
 
-    useEffect(() => {
-        if(!user) return;
+  useEffect(() => {
+    if (!user) return;
 
-        const previouslyReadIds = messages.filter((message) => {
-            const isOwnMessage = message.sender === user.username;
+    const previouslyReadIds = messages
+      .filter((message) => {
+        const isOwnMessage = message.sender === user.username;
 
-            const wasReadBySomeoneElse = Array.isArray(message.read_by)
-            && message.read_by.some(
-                (reader) => reader !== user.username
-            )
+        const wasReadBySomeoneElse =
+          Array.isArray(message.read_by) &&
+          message.read_by.some((reader) => reader !== user.username);
 
-            return isOwnMessage && wasReadBySomeoneElse;
-        }).map((message) => message.id);
+        return isOwnMessage && wasReadBySomeoneElse;
+      })
+      .map((message) => message.id);
 
-        setReadMessageIds((previousIds) => [
-            ...new Set([
-                ...previousIds,
-                ...previouslyReadIds
-            ]),
-        ]);
-    }, [messages, user])
+    setReadMessageIds((previousIds) => [
+      ...new Set([...previousIds, ...previouslyReadIds]),
+    ]);
+  }, [messages, user]);
 
-    const handleSearch = async () => {
-        const query = searchQuery.trim();
+  const handleSearch = async () => {
+    const query = searchQuery.trim();
 
-        if (!query) return;
+    if (!query) return;
 
-        try {
-            setSearching(true)
-            setSearchError(null);
+    try {
+      setSearching(true);
+      setSearchError(null);
 
-            const results = await messageService.searchMessages(
-                conversationId,
-                query
-            );
+      const results = await messageService.searchMessages(
+        conversationId,
+        query,
+      );
 
-            setSearchResults(results)
-            setHasSearched(true)
-        } catch (error) {
-            console.error("Message search failed:", error);
-            setSearchError("Unable to search messages. Please try again.");
-        } finally {
-            setSearching(false)
+      setSearchResults(results);
+      setHasSearched(true);
+    } catch (error) {
+      console.error("Message search failed:", error);
+      setSearchError("Unable to search messages. Please try again.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // Receive messages from the websocket
+
+  const handleIncomingMessage = useCallback(
+    (message: (typeof messages)[number]) => {
+      setMessages((previousMessages) => {
+        //prevent duplicate messages
+
+        if (previousMessages.some((item) => item.id == message.id)) {
+          return previousMessages;
         }
+        return [...previousMessages, message];
+      });
+    },
+    [setMessages],
+  );
+
+  // Establish the websocket connection
+
+  const lastMessageId = messages.reduce(
+    (lastId, message) => Math.max(lastId, message.id),
+    0,
+  );
+
+  const {
+    isConnected,
+    connectionError,
+    sendMessage,
+    readReceipt,
+    markAsRead,
+    sendTyping,
+    typingUsers,
+  } = useChatSocket(
+    conversationId,
+    handleIncomingMessage,
+    lastMessageId,
+    updateMessage,
+    markMessageDeleted,
+  );
+
+  // clear previous conversation's read statuses.
+  useEffect(() => {
+    setReadMessageIds([]);
+  }, [conversationId]);
+
+  // track messages read by other participants
+
+  useEffect(() => {
+    if (!readReceipt) return;
+
+    if (Number(readReceipt.conversation_id) !== conversationId) {
+      return;
     }
 
+    // Ignore read receipts generated by the current user.
+    if (readReceipt.user === user?.username) {
+      return;
+    }
+    setReadMessageIds((previousIds) => [
+      ...new Set([...previousIds, ...readReceipt.message_ids]),
+    ]);
+  }, [readReceipt, conversationId, user?.username]);
 
-    // Receive messages from the websocket
+  useEffect(() => {
+    if (isConnected && document.visibilityState === "visible") {
+      markAsRead();
+    }
+  }, [isConnected, messages, markAsRead]);
 
-    const handleIncomingMessage = useCallback(
-        (message: (typeof messages)[number]) => {
-            setMessages((previousMessages) => {
-                //prevent duplicate messages
-
-                if (previousMessages.some((item) => item.id == message.id)) {
-                    return previousMessages
-                }
-                return [...previousMessages, message]
-            });
-
-        },
-        [setMessages]
-    )
-
-    // Establish the websocket connection
-
-    const lastMessageId = messages.reduce((lastId, message) => Math.max(lastId, message.id), 0);
-
-    const {
-        isConnected,
-        connectionError,
-        sendMessage,
-        readReceipt,
-        markAsRead,
-        sendTyping,
-        typingUsers,
-    } = useChatSocket(conversationId, handleIncomingMessage, lastMessageId)
-
-    // clear previous conversation's read statuses.
-    useEffect(() => {
-        setReadMessageIds([]);
-    }, [conversationId]);
-
-    // track messages read by other participants
-
-    useEffect(() => {
-        if (!readReceipt) return;
-
-        if (Number(readReceipt.conversation_id) !== conversationId){
-            return;
-        }
-
-        // Ignore read receipts generated by the current user.
-        if (readReceipt.user === user?.username){
-            return
-        }
-        setReadMessageIds((previousIds) => [
-            ...new Set([
-                ...previousIds,
-                ...readReceipt.message_ids,
-            ]),
-        ]);
-    }, [readReceipt, conversationId, user?.username])
-
-    useEffect(() => {
-        if (isConnected && document.visibilityState === "visible"){
-            markAsRead();
-        }
-    }, [isConnected, messages, markAsRead])
-
-    useEffect(() => {
-        const handleVisibilityChange = () => {
-            if (
-                document.visibilityState === "visible" && isConnected
-            ) {
-                markAsRead();
-            }
-        }
-
-        document.addEventListener(
-            "visibilitychange",
-            handleVisibilityChange
-        );
-
-        return () => {
-            document.removeEventListener(
-                "visibilitychange",
-                handleVisibilityChange
-            )
-        }
-    }, [isConnected, markAsRead])
-
-    // send messages through the websocket
-
-    const handleSendMessage = async (content: string) => {
-        sendMessage(content)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && isConnected) {
+        markAsRead();
+      }
     };
 
-    // scroll to the latest message
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    useEffect(() => {
-        const container = messagesContainerRef.current;
-        if (!container) return;
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isConnected, markAsRead]);
 
-        const previousHeight = previousScrollHeightRef.current;
+  // send messages through the websocket
 
-        if (previousHeight !== null) {
-            const heightDifference = container.scrollHeight - previousHeight;
-            container.scrollTop += heightDifference;
-            previousScrollHeightRef.current = null;
-            return;
-        }
-        bottomRef.current?.scrollIntoView({
-            behavior: "smooth",
-        });
-    }, [messages])
+  const handleSendMessage = async (content: string) => {
+    sendMessage(content);
+  };
+
+  const handleEditMessage = async (messageId: number) => {
+    const content = editContent.trim();
+    if (!content || savingEdit) return;
+
+    try {
+      setSavingEdit(true);
+      setEditError(null);
+      const updatedMessage = await messageService.editMessage(
+        conversationId,
+        messageId,
+        content,
+      );
+
+      updateMessage(updatedMessage);
+
+      setEditingMessageId(null);
+      setEditContent("");
+    } catch (error) {
+      console.error("Failed to edit message:", error);
+      setEditError("Unable to edit message. Please try again.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // handle delete message
+
+  const handleDeleteMessage = async (messageId: number) => {
+    try {
+      const deletedMessage = await messageService.deleteMessage(
+        conversationId,
+        messageId,
+      );
+
+      // update the messageusing server response.
+      updateMessage(deletedMessage);
+    } catch (error) {
+      console.error("Failed to delete message:", error);
+    }
+  };
+
+  // scroll to the latest message
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const previousHeight = previousScrollHeightRef.current;
+
+    if (previousHeight !== null) {
+      const heightDifference = container.scrollHeight - previousHeight;
+      container.scrollTop += heightDifference;
+      previousScrollHeightRef.current = null;
+      return;
+    }
+    bottomRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [messages]);
 
   return (
     <div className="flex h-full flex-col bg-slate-950">
-        {/* Header */}
-        <header className="flex items-center justify-between border-b border-slate-800 p-5">
-            <div className="flex min-w-0 items-center gap-3">
-                <button
-                onClick={onBack}
-                className="shrink-0 rounded-lg p-2 text-slate-400
+      {/* Header */}
+      <header className="flex items-center justify-between border-b border-slate-800 p-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            onClick={onBack}
+            className="shrink-0 rounded-lg p-2 text-slate-400
                 hover:bg-slate-800 hover:text-white md:hidden"
-                >
-                    <ArrowLeft size={20} />
-                </button>
-                <div>
-                <h2 className="font-semibold text-white">Conversation #{conversationId}</h2>
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h2 className="font-semibold text-white">
+              Conversation #{conversationId}
+            </h2>
 
-                <p className="mt-1 text-xs text-slate-400">{isConnected ? "Connected": "Connecting..."}</p>
-                {
-                    readReceipt && Number(readReceipt.conversation_id) === conversationId && (
-                        <p className="mt-2 text-xs text-green-400">
-                            <span className="font-semibold">
-                                {readReceipt.user}
-                            </span>
-                            {" "}read {readReceipt.count}
-                            message(s),
-                            {" "}Unread: {readReceipt.unread_count}
-                        </p>
-                    )
-                }
-                </div>
-            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              {isConnected ? "Connected" : "Connecting..."}
+            </p>
+            {readReceipt &&
+              Number(readReceipt.conversation_id) === conversationId && (
+                <p className="mt-2 text-xs text-green-400">
+                  <span className="font-semibold">{readReceipt.user}</span> read{" "}
+                  {readReceipt.count}
+                  message(s), Unread: {readReceipt.unread_count}
+                </p>
+              )}
+          </div>
+        </div>
 
-            <div className="flex items-center gap-3">
-            <span className={`h-2.5 w-2.5 rounded-full ${isConnected ? "bg-green-500" : "bg-yellow-500"}`}
-            title={isConnected ? "Connected" : "Disconnected"} />
+        <div className="flex items-center gap-3">
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${isConnected ? "bg-green-500" : "bg-yellow-500"}`}
+            title={isConnected ? "Connected" : "Disconnected"}
+          />
 
-            <button
-            onClick={
-                () => {
-                    setShowSearch((previous) => !previous)
-                    setSearchQuery("");
-                    setSearchResults([])
-                    setSearchError(null);
-                }
-            }
+          <button
+            onClick={() => {
+              setShowSearch((previous) => !previous);
+              setSearchQuery("");
+              setSearchResults([]);
+              setSearchError(null);
+            }}
             title="Search messages"
             className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-                <Search size={18} />
-            </button>
+          >
+            <Search size={18} />
+          </button>
 
-            <button 
-                onClick={refreshMessages}
-                disabled={loading}
-                title = "Refresh Messages"
-                className="rounded-lg p-2 text-slate-400 transition  hover:bg-slate-800
+          <button
+            onClick={refreshMessages}
+            disabled={loading}
+            title="Refresh Messages"
+            className="rounded-lg p-2 text-slate-400 transition  hover:bg-slate-800
                 hover:text-white disabled:opacity-50"
-            >
-                <RefreshCw
-                size={18}
-                className={loading ? "animate-spin" : ""}
-                 />
-            </button>
-            </div>
-        </header>
-
-        {
-            showSearch && (
-                <div className="border-b border-slate-800 bg-slate-900 p-4">
-                    <form
-                    onSubmit={(event) => {
-                        event.preventDefault()
-                        handleSearch();
-                    }}
-                    className="flex gap-2"
-                    >
-                        <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Search messages..."
-                        className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800
-                        px-4 py-2 text-sm text-white oultline-none focus:border-blue-500"
-                         />
-                        <button
-                        type="submit"
-                        disabled={searching || !searchQuery.trim()}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
-                        >
-                            {searching ? "Searching...": "Search"}
-                        </button>
-                        <button
-                        type="button"
-                        onClick={() => {
-                            setShowSearch(false);
-                            setSearchQuery("")
-                            setSearchResults([])
-                            setSearchError(null)
-                        }}
-                        title="Close search"
-                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
-                        >
-                            <X size={18} />
-                        </button>
-                    </form>
-
-                </div>
-            )
-        }
-
-        {/* connection error */}
-
-        {connectionError && (
-            <div className="border-b border-red-500/20 bg-red-500/10
-            p-3 text-center text-xs text-red-400">
-                {connectionError}
-            </div>
-        )}
-
-        {/* Search results */}
-
-        {
-            showSearch && hasSearched && (
-                <div className="border-b border-slate-800 bg-slate-900 p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-white">
-                            Search Results
-                        </h3>
-                        <span className="text-xs text-slate-400">
-                            {searchResults.length} found
-                        </span>
-                    </div>
-                    {searchError && (
-                        <p className="text-xs text-slate-400">
-                            {searchError}
-                        </p>
-                    )}
-                    <div className="max-h-64 space-y-3 overflow-y-auto">
-                        {searchResults.map((message) => (
-                            <div 
-                            key={message.id}
-                            className="rounded-lg border border-slate-700 bg-slate-800 p-3"
-                            >
-                                <p className="mb-1 text-xs font-semibold text-blue-400">
-                                    {message.sender}
-                                </p>
-                                <p className="text-sm text-slate-200">
-                                    {message.content}
-                                </p>
-                                <p className="mt-2 text-xs text-slate-500">
-                                    {new Date(message.created_at).toLocaleString()}
-                                </p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )
-        }
-
-        {/* Messages */}
-
-        <div ref={messagesContainerRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:p-5">
-            {loading && messages.length === 0 && (
-                <p className="py-10 text-center text-sm text-slate-400">
-                    Loading Messages...
-                </p>
-            )}
-
-            {error && (
-                <div className="mx-auto max-w-md rounded=lg bg-red-500/10 p-4 text-center text-sm text-red-400">
-                    <p>{error}</p>
-
-                    <button onClick={refreshMessages}
-                    className="mt-2 font-semibold underline"
-                    >
-                        Try again
-                    </button>
-                </div>
-            )}
-
-            {!loading && !error && messages.length === 0 && (
-                <div className="flex h-full flex-col items-center justify-center text-center">
-                    <MessageCircle
-                    size={40}
-                    className="mb-3 text-slate-600"
-                     />
-                     <p className="font-medium text-slate-300">
-                        No messages yet
-                     </p>
-
-                     <p className="mt-1 text-sm text-slate-500">
-                        Messages will appear here.
-                     </p>
-                </div>
-            )}
-
-            <div className="space-y-4">
-                {hasMore && (
-                    <div className="flex justify-center pb-4">
-                        <button
-                        onClick={() => {
-                            if (messagesContainerRef.current) {
-                                previousScrollHeightRef.current = messagesContainerRef.current.scrollHeight;
-                            }
-
-                            loadOlderMessages();
-                        }}
-                        disabled={loadingOlder}
-                        className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
-                        >
-                            {loadingOlder ? "Loading older messages..." : "Load older messages"}
-                        </button>
-                    </div>
-                )}
-                {
-                    messages.map((message) => {
-                        const isOwnMessage = message.sender === user?.username;
-
-                        const isRead = readMessageIds.includes(message.id);
-
-                        return (
-                            <div
-                            key={message.id}
-                            className={`flex w-full ${
-                                isOwnMessage ? "justify-end" : "justify-start"
-                            }`}
-                            >
-                                <div className="max-w-[90%] sm:max-w-2xl">
-                                <div className={`mb-1 text-xs text-slate-500 ${isOwnMessage ? "text-right" : "text-left"}`}>
-                                    {isOwnMessage ? "You" : message.sender}
-
-                                </div>
-                                <div className={`inline-block rounded-2xl px-4 py-3 text-sm
-                                    ${isOwnMessage ? "rounded-tr-sm bg-blue-600 text-white" : "rounded-tl-sm bg-slate-800 text-slate-200"}`}>
-                                    {message.content}
-                                </div>
-                                <div className={`mt-1 flex items-center gap-1 text-xs ${
-                                    isOwnMessage ? "justify-end" : "justify-start"
-                                }`}>
-                                    <span className="text-slate-500">
-                                    {new Date(message.created_at).toLocaleTimeString(
-                                        [], {
-                                            hour: "2-digit",
-                                            minute: "2-digit"
-                                        }
-                                    )}
-                                    </span>
-                                    {
-                                        isOwnMessage && (
-                                            <span title={isRead ? "Read" : "Sent"}
-                                            className={isRead ? "text-blue-400" : "text-slate-500"}
-                                            >
-                                                {isRead ? "✓✓" : "✓"}
-                                            </span>
-                                        )
-                                    }
-                                </div>
-                                </div>
-                            </div>
-                        )
-                    })
-                }
-            </div>
-            <div ref={bottomRef} />
+          >
+            <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+          </button>
         </div>
-        {/* Typing indicator */}
+      </header>
 
-        {typingUsers.length > 0 && (
-            <div className="border-t border-slate-800 px-5 py-2">
-                <p className="text-xs italic text-blue-400">
-                    {typingUsers.length === 1 ? `${typingUsers[0]} is typing...` 
-                    : typingUsers.length === 2 ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
-                : `${typingUsers.length} people are typing` }
+      {showSearch && (
+        <div className="border-b border-slate-800 bg-slate-900 p-4">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleSearch();
+            }}
+            className="flex gap-2"
+          >
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search messages..."
+              className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800
+                        px-4 py-2 text-sm text-white oultline-none focus:border-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={searching || !searchQuery.trim()}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+            >
+              {searching ? "Searching..." : "Search"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowSearch(false);
+                setSearchQuery("");
+                setSearchResults([]);
+                setSearchError(null);
+              }}
+              title="Close search"
+              className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              <X size={18} />
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* connection error */}
+
+      {connectionError && (
+        <div
+          className="border-b border-red-500/20 bg-red-500/10
+            p-3 text-center text-xs text-red-400"
+        >
+          {connectionError}
+        </div>
+      )}
+
+      {/* Search results */}
+
+      {showSearch && hasSearched && (
+        <div className="border-b border-slate-800 bg-slate-900 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white">Search Results</h3>
+            <span className="text-xs text-slate-400">
+              {searchResults.length} found
+            </span>
+          </div>
+          {searchError && (
+            <p className="text-xs text-slate-400">{searchError}</p>
+          )}
+          <div className="max-h-64 space-y-3 overflow-y-auto">
+            {searchResults.map((message) => (
+              <div
+                key={message.id}
+                className="rounded-lg border border-slate-700 bg-slate-800 p-3"
+              >
+                <p className="mb-1 text-xs font-semibold text-blue-400">
+                  {message.sender}
                 </p>
-            </div>
+                <p className="text-sm text-slate-200">
+                    {message.is_deleted ? "This message was deleted" : message.content}
+                    </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {new Date(message.created_at).toLocaleString()}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Messages */}
+
+      <div
+        ref={messagesContainerRef}
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:p-5"
+      >
+        {loading && messages.length === 0 && (
+          <p className="py-10 text-center text-sm text-slate-400">
+            Loading Messages...
+          </p>
         )}
 
-        {/* Message input */}
+        {error && (
+          <div className="mx-auto max-w-md rounded=lg bg-red-500/10 p-4 text-center text-sm text-red-400">
+            <p>{error}</p>
 
-        <MessageComposer
+            <button
+              onClick={refreshMessages}
+              className="mt-2 font-semibold underline"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && messages.length === 0 && (
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <MessageCircle size={40} className="mb-3 text-slate-600" />
+            <p className="font-medium text-slate-300">No messages yet</p>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Messages will appear here.
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {hasMore && (
+            <div className="flex justify-center pb-4">
+              <button
+                onClick={() => {
+                  if (messagesContainerRef.current) {
+                    previousScrollHeightRef.current =
+                      messagesContainerRef.current.scrollHeight;
+                  }
+
+                  loadOlderMessages();
+                }}
+                disabled={loadingOlder}
+                className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
+              >
+                {loadingOlder
+                  ? "Loading older messages..."
+                  : "Load older messages"}
+              </button>
+            </div>
+          )}
+          {messages.map((message) => {
+            const isOwnMessage = message.sender === user?.username;
+
+            const isRead = readMessageIds.includes(message.id);
+
+            return (
+              <div
+                key={message.id}
+                className={`flex w-full ${
+                  isOwnMessage ? "justify-end" : "justify-start"
+                }`}
+              >
+                <div className="max-w-[90%] sm:max-w-2xl">
+                  <div
+                    className={`mb-1 text-xs text-slate-500 ${isOwnMessage ? "text-right" : "text-left"}`}
+                  >
+                    {isOwnMessage ? "You" : message.sender}
+                  </div>
+                  {message.is_deleted ? (
+                    <div
+                      className=" inline-block rounded-2xl bg-slate-800
+                                    px-4 py-3 text-sm italic text-slate-400
+                                    "
+                    >
+                      This message was deleted
+                    </div>
+                  ) : editingMessageId === message.id ? (
+                    <div
+                      className="w-full min-w-[240px] rounded-xl
+                                    border border-slate-700 bg-slate-900 p-3"
+                    >
+                      <textarea
+                        value={editContent}
+                        onChange={(event) => setEditContent(event.target.value)}
+                        maxLength={5000}
+                        rows={3}
+                        className="w-full resize-y rounded-lg border border-slate-700
+                                            bg-slate-800 p-3 text-sm text-white outline-none focus:border-blue-500"
+                        autoFocus
+                      />
+                      {editError && (
+                        <p className="mt-2 text-xs text-red-400">{editError}</p>
+                      )}
+
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button
+                          onClick={() => {
+                            setEditingMessageId(null);
+                            setEditContent("");
+                            setEditError(null);
+                          }}
+                          disabled={savingEdit}
+                          className="rounded-lg px-3 py-2 text-xs text-slate-700
+                                            disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleEditMessage(message.id);
+                          }}
+                          disabled={savingEdit || !editContent.trim()}
+                          className="rounded-lg bg-blue-600 px-3 py-2 text-xs front-medium text-white hover:bg-blue-500
+                                            disabled:opacity-50"
+                        >
+                          {savingEdit ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className={`inline-block rounded-2xl px-4 py-3 text-sm
+                                    ${isOwnMessage ? "rounded-tr-sm bg-blue-600 text-white" : "rounded-tl-sm bg-slate-800 text-slate-200"}`}
+                    >
+                      {message.content}
+                    </div>
+                  )}
+                  <div
+                    className={`mt-1 flex items-center gap-1 text-xs ${
+                      isOwnMessage ? "justify-end" : "justify-start"
+                    }`}
+                  >
+                    {isOwnMessage &&
+                      !message.is_deleted &&
+                      editingMessageId !== message.id && (
+                        <div className="mb-1 flex justify-end">
+                          <button
+                            onClick={() => {
+                              setEditingMessageId(message.id);
+                              setEditContent(message.content);
+                              setEditError(null);
+                            }}
+                            className="text-xs text-slate-400 transition
+                                                hover:text-blue-400"
+                          >
+                            Edit
+                          </button>
+                          <button
+                          onClick = {() => {
+                            handleDeleteMessage(message.id)
+        
+                          }}
+                          className="ml-2 text-xs text-red-400 hover:text-red-300"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    <span className="text-slate-500">
+                      {new Date(message.created_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    {message.is_edited && !message.is_deleted && (
+                      <span className="text-slate-500 italic">Edited</span>
+                    )}
+                    {isOwnMessage && (
+                      <span
+                        title={isRead ? "Read" : "Sent"}
+                        className={isRead ? "text-blue-400" : "text-slate-500"}
+                      >
+                        {isRead ? "✓✓" : "✓"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div ref={bottomRef} />
+      </div>
+      {/* Typing indicator */}
+
+      {typingUsers.length > 0 && (
+        <div className="border-t border-slate-800 px-5 py-2">
+          <p className="text-xs italic text-blue-400">
+            {typingUsers.length === 1
+              ? `${typingUsers[0]} is typing...`
+              : typingUsers.length === 2
+                ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
+                : `${typingUsers.length} people are typing`}
+          </p>
+        </div>
+      )}
+
+      {/* Message input */}
+
+      <MessageComposer
         onSend={handleSendMessage}
         onTyping={sendTyping}
         disabled={!isConnected}
-         />
+      />
     </div>
-  )
-}
+  );
+};
 
-export default MessagePanel
+export default MessagePanel;

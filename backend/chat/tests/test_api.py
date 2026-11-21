@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 
 from rest_framework.test import APIClient
 
-from chat.models import Conversation, Message
+from chat.models import Conversation, Message, MessageReaction
 from notifications.models import Notification, NotificationOutbox
 
 from unittest.mock import mock_open, patch
@@ -675,4 +675,241 @@ class ChatAPITests(TestCase):
         self.assertEqual(
             args[1]["message_id"],
             message.id
+        )
+
+    def test_user_can_react_to_message(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Hello Bob"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/reactions/",
+            {
+                "emoji": "🔥"
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(response.data["action"], "added")
+
+        # verify the reaction existts in the database
+
+        reaction = MessageReaction.objects.get(
+            message=message,
+            user=self.bob,
+            emoji="🔥"
+        )
+
+        self.assertEqual(reaction.user, self.bob)
+
+        # verify the API returned the reaction.
+
+        self.assertEqual(len(response.data["reactions"]), 1)
+
+        self.assertEqual(response.data["reactions"][0]["emoji"], "🔥")
+
+    def test_user_can_remove_own_reaction(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Hello Bob"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        url = (
+            f"/api/conversations/{self.conversation.id}"
+            f"/messages/{message.id}/reactions/"
+        )
+
+        # first request: Add reaction.
+
+        first_response = self.client.post(
+            url,
+            {"emoji": "🔥"},
+            format="json"
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(first_response.data["action"], "added")
+
+        # Second Request: Remove te same reaction
+
+        second_response = self.client.post(
+            url,
+            {"emoji": "🔥"},
+            format="json"
+        )
+
+        self.assertEqual(second_response.status_code, 200)
+
+        self.assertEqual(second_response.data["action"], "removed")
+
+        # verify reaction was removed from the database.
+
+        self.assertFalse(
+            MessageReaction.objects.filter(
+                message=message,
+                user=self.bob,
+                emoji="🔥"
+            ).exists()
+        )
+        self.assertEqual(len(second_response.data["reactions"]), 0)
+
+    def test_non_participant_cannot_react_to_message(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Protected message"
+        )
+
+        self.client.force_authenticate(user=self.charlie)
+
+        response = self.client.post(
+            f"/api/conversation/{self.conversation.id}/messages/{message.id}/reactions/",
+            {
+                "emoji": "🔥"
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+        # verify no reaction was created.
+
+        self.assertEqual(
+            MessageReaction.objects.filter(
+                message=message
+            ).count(),
+            0
+        )
+
+    def test_deleted_message_cannot_receive_reactions(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Deleted message",
+            is_deleted=True
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/reactions/",
+            {
+                "emoji": "🔥"
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(MessageReaction.objects.filter(
+            message=message
+        ).count(), 0)
+
+    def test_invalid_reaction_emoji_is_rejected(self):
+        message = Message.objects.create(
+            conversation = self.conversation,
+            sender=self.alice,
+            content="Hello Bob"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        url = (
+            f"/api/conversations/{self.conversation.id}"
+            f"/messages/{message.id}/reactions/"
+        )
+
+        invalid_values = [
+            {},
+            {"emoji": ""},
+            {"emoji": "  "},
+            {"emoji": "🔥" * 33},
+        ]
+
+        for payload in invalid_values:
+            response = self.client.post(
+                url,
+                payload,
+                format="json"
+            )
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertEqual(
+            MessageReaction.objects.filter(
+                message=message
+            ).count(), 0
+        )
+
+    def test_reaction_broadcasts_websocket_event(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Hello Bob"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        with patch(
+            "chat.views.get_channel_layer",
+            return_value = InMemoryChannelLayer()
+        ), patch(
+            "chat.views.async_to_sync"
+        ) as mock_async_to_sync:
+            with self.captureOnCommitCallbacks(
+                execute=True
+            ) as callbacks:
+                response = self.client.post(
+                    f"/api/conversations/{self.conversation.id}/messages/{message.id}/reactions/",
+                    {"emoji": "🔥"},
+                    format="json"
+                )
+
+        self.assertEqual(len(callbacks), 1)
+
+        self.assertEqual(response.status_code, 200)
+
+        # verify the broadcast function was called
+
+        mock_async_to_sync.assert_called_once()
+
+        group_send = mock_async_to_sync.return_value
+
+        group_send.assert_called_once()
+
+        args, kwargs = group_send.call_args
+
+        # verify the destination conversation group
+
+        self.assertEqual(
+            args[0],
+            f"chat_{self.conversation.id}"
+        )
+
+        # verify the event type.
+
+        self.assertEqual(
+            args[1]["type"],
+            "reaction_updated"
+        )
+
+        # verify the message ID
+
+        self.assertEqual(
+            args[1]["message_id"],
+            message.id
+        )
+
+        # Verify the reaction payload.
+
+        self.assertEqual(
+            args[1]["reactions"][0]["emoji"], "🔥"
         )

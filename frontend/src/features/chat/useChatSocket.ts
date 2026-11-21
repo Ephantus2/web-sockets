@@ -1,7 +1,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createChatWebSocket } from "./websocketService";
-import type { Message } from "./types";
+import type { Message, MessageReaction } from "./types";
 
 interface ConnectionMessage {
   type: "connection_established";
@@ -52,6 +52,12 @@ type ServerEvent =
     message_id: number;
     conversation_id: number;
   }
+  | {
+    type: "reaction_updated",
+    message_id: number,
+    conversation_id: number,
+    reactions: MessageReaction[]
+  }
 
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 30000;
@@ -61,7 +67,8 @@ export function useChatSocket(
   onMessageReceived: (message: Message) => void,
   lastMessageId = 0,
   onMessageEdited: (message:  Message) => void,
-  onMessageDeleted: (messageId: number) => void
+  onMessageDeleted: (messageId: number) => void,
+  onReactionUpdated: (messageId: number, reactions: MessageReaction[]) => void
 ) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -225,6 +232,14 @@ export function useChatSocket(
 
           if (data.type === "message_deleted") {
             onMessageDeleted(data.message_id)
+            return
+          }
+
+          if (data.type === "reaction_updated"){
+            onReactionUpdated(
+              data.message_id,
+              data.reactions
+            );
             return
           }
 

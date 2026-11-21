@@ -3,10 +3,11 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_list_or_404, get_object_or_404
-from .models import Conversation, Message
+from .models import Conversation, Message, MessageReaction
 from .serializers import (
     ConversationSerializer,
-    MessageSerializer
+    MessageSerializer,
+    MessageReactionSerializer
 )
 from .pagination import MessageCursorPagination
 
@@ -98,7 +99,10 @@ class MessageListCreateView(APIView):
 
         messages = Message.objects.filter(
             conversation=conversation
-        ).select_related("sender").prefetch_related("read_receipts__user").order_by("-id")
+        ).select_related("sender").prefetch_related(
+            "read_receipts__user",
+            "reactions__user"
+        ).order_by("-id")
 
         #create paginator
         paginator = MessageCursorPagination()
@@ -435,5 +439,120 @@ class MessageUpdateDeleteView(APIView):
 
         return Response(
             message_data,
+            status=status.HTTP_200_OK
+        )
+
+class MessageReactionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, conversation_id, message_id):
+        # 1. verify conversation membership
+
+        conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            participants=request.user
+        )
+
+        # 2. Retrieve the message
+        message = get_object_or_404(
+            Message,
+            id=message_id,
+            conversation=conversation
+        )
+
+        # 3. Prevent reactions to deleted messages
+
+        if message.is_deleted:
+            return Response(
+                {
+                    "error": "Cannot react to a deleted message."
+                },
+
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # validate the emoji
+
+        emoji = request.data.get("emoji")
+
+        if not isinstance(emoji, str) or not emoji.strip():
+            return Response(
+                {
+                    "error": "A valid emoji is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        emoji = emoji.strip()
+
+        if len(emoji) > 32:
+            return Response(
+                {"error": "Emoji cannot exceed 32 characters."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 5. Toogle the reaction
+
+        reaction, created = MessageReaction.objects.get_or_create(
+            message=message,
+            user=request.user,
+            emoji=emoji
+        )
+
+        if not created:
+            reaction.delete()
+
+        #6. Retrieve updated reactions
+
+        reactions = (
+            MessageReaction.objects
+            .filter(message=message)
+            .select_related("user")
+            .order_by("created_at")
+        )
+
+        reaction_data = MessageReactionSerializer(
+            reactions,
+            many=True
+        ).data
+
+        # 7. Broadcast updated reactions after databese commit
+
+        def broadcast_reaction():
+            channel_layer = get_channel_layer()
+
+            if channel_layer is None:
+                logger.error(
+                    "Channel layer unavailable. "
+                    "Could not broadcast reactions for message %s",
+                    message.id
+                )
+                return
+
+            try:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{conversation_id}",
+                    {
+                        "type": "reaction_updated",
+                        "message_id": message.id,
+                        "conversation_id": conversation_id,
+                        "reactions": reaction_data
+                    }
+                )
+
+            except Exception:
+                logger.exception(
+                    "Failed to broadcast reactions for message %s",
+                    message.id
+                )
+        transaction.on_commit(broadcast_reaction)
+
+        return Response(
+            {
+                "message_id": message.id,
+                "conversation_id": conversation.id,
+                "action": "added" if created else "removed",
+                "reactions": reaction_data
+            },
             status=status.HTTP_200_OK
         )

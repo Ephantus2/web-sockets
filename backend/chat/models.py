@@ -102,3 +102,39 @@ class MessageRead(models.Model):
 
         def __str__(self):
             return f"{self.user} read message {self.message_id}"
+
+class MessageReaction(models.Model):
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="reactions"
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="message_reactions"
+    )
+
+    emoji = models.CharField(max_length=32)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["message", "user", "emoji"],
+                name="unique_user_message_reaction"
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields = ["message", "emoji"],
+
+                name="chat_message_emoji_idx"
+            )
+        ]
+
+        def __str__(self):
+            return f"{self.user} reacted {self.emoji} to message {self.message_id}"

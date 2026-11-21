@@ -1,6 +1,6 @@
 import api from "../../api/client";
 
-import type { Message, PaginatedMessages } from "./types";
+import type { Message, PaginatedMessages, MessageReaction } from "./types";
 
 export const messageService = {
     // retrieve the latest messages in a conversation
@@ -66,6 +66,24 @@ export const messageService = {
         const response = await api.delete<Message>(
             `/api/conversations/${conversationId}/messages/${messageId}/`
         );
+        return response.data
+    },
+
+    async toggleReaction(
+        conversationId: number,
+        messageId: number,
+        emoji: string
+    ): Promise<{
+        message_id: number;
+        conversation_id: number;
+        action: "added" | "removed";
+        reactions: MessageReaction[];
+    }> {
+        const response = await api.post(
+            `/api/conversations/${conversationId}/messages/${messageId}/reactions/`,
+            { emoji }
+        );
+
         return response.data
     }
 }

@@ -9,6 +9,7 @@ import type { Message } from "./types";
 
 import { useAuth } from "../../context/AuthContext";
 
+import MessageReactions from "./MessageReactions";
 interface MessagePanelProps {
   conversationId: number;
   onBack: () => void;
@@ -19,6 +20,7 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
     messages,
     setMessages,
     updateMessage,
+    updateMessageReactions,
     markMessageDeleted,
     loading,
     loadingOlder,
@@ -130,6 +132,7 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
     lastMessageId,
     updateMessage,
     markMessageDeleted,
+    updateMessageReactions
   );
 
   // clear previous conversation's read statuses.
@@ -221,6 +224,24 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
       console.error("Failed to delete message:", error);
     }
   };
+
+  const handleReact = async (messageId: number, emoji: string) => {
+    try {
+      const response = await messageService.toggleReaction(
+        conversationId,
+        messageId,
+        emoji
+      );
+      updateMessageReactions(
+        messageId,
+        response.reactions
+      )
+    } catch (error) {
+      console.error(
+        "Failed to toogle reaction:", error
+      )
+    }
+  } 
 
   // scroll to the latest message
 
@@ -516,12 +537,26 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
                       </div>
                     </div>
                   ) : (
+                    <>
+                    
                     <div
                       className={`inline-block rounded-2xl px-4 py-3 text-sm
                                     ${isOwnMessage ? "rounded-tr-sm bg-blue-600 text-white" : "rounded-tl-sm bg-slate-800 text-slate-200"}`}
                     >
                       {message.content}
                     </div>
+
+          
+                      <MessageReactions
+                      reactions={message.reactions ?? []}
+                      currentUsername={user?.username}
+                      onReact={(emoji) => handleReact(message.id, emoji)}
+                      disabled={!isConnected}
+                       />
+                  
+
+                    </>
+
                   )}
                   <div
                     className={`mt-1 flex items-center gap-1 text-xs ${

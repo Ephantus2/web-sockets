@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { messageService } from "./messageService";
-import type { Message, PaginatedMessages } from "./types";
+import type { Message, PaginatedMessages, MessageReaction } from "./types";
 
 export function useMessages(conversationId: number | null){
     const [messages, setMessages] = useState<Message[]>([])
@@ -69,6 +69,13 @@ const  markMessageDeleted = useCallback((messageId: number) => {
     }: message))
 }, [])
 
+const updateMessageReactions = useCallback((messageId: number, reactions: MessageReaction[]) => {
+    setMessages((currentMessages) => currentMessages.map((message) => message.id === messageId ? {
+        ...message,
+        reactions
+    }: message))
+}, [])
+
 
     useEffect(() => {
         setMessages([]);
@@ -85,6 +92,7 @@ const  markMessageDeleted = useCallback((messageId: number) => {
     setMessages,
     updateMessage,
     markMessageDeleted,
+    updateMessageReactions,
     nextUrl,
     loading,
     loadingOlder,

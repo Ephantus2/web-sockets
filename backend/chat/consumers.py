@@ -363,6 +363,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
             })
         )
 
+    async def reaction_updated(self, event):
+        await self.send(
+            text_data=json.dumps({
+                "type": "reaction_updated",
+                "message_id": event["message_id"],
+                "conversation_id": event["conversation_id"],
+                "reactions": event["reactions"]
+            })
+        )
+
     async def disconnect(self, close_code):
         if hasattr(self, "room_group_name"):
             await self.channel_layer.group_discard(
@@ -411,3 +421,4 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "unread_count": event["unread_count"]
             })
         )
+

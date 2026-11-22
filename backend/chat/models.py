@@ -57,6 +57,21 @@ class Message(models.Model):
         blank=True
     )
 
+    is_pinned = models.BooleanField(
+        default=False
+    )
+    pinned_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+    pinned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pinned_messages"
+    )
+
     class Meta:
         ordering = ["created_at"]
 

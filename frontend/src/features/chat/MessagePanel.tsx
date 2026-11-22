@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageCircle, RefreshCw, Search, X, ArrowLeft } from "lucide-react";
+import { MessageCircle, RefreshCw, Search, X, ArrowLeft, Pin, PinOff } from "lucide-react";
 
 import { useMessages } from "./useMessages";
 import { useChatSocket } from "./useChatSocket";
@@ -21,6 +21,7 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
     setMessages,
     updateMessage,
     updateMessageReactions,
+    updatePinnedMessage,
     markMessageDeleted,
     loading,
     loadingOlder,
@@ -111,6 +112,23 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
     [setMessages],
   );
 
+  const handleTooglePin = async (messageId: number) => {
+    try {
+      const response = await messageService.togglePin(
+        conversationId,
+        messageId
+      )
+      updatePinnedMessage(
+        response.message_id,
+        response.is_pinned,
+        response.pinned_at,
+        response.pinned_by
+      )
+    } catch (error) {
+      console.error("Failed to toggle message pin:", error);
+    }
+  }
+
   // Establish the websocket connection
 
   const lastMessageId = messages.reduce(
@@ -132,7 +150,8 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
     lastMessageId,
     updateMessage,
     markMessageDeleted,
-    updateMessageReactions
+    updateMessageReactions,
+    updatePinnedMessage
   );
 
   // clear previous conversation's read statuses.
@@ -261,6 +280,8 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
       behavior: "smooth",
     });
   }, [messages]);
+
+  const pinnedMessage = messages.find((message) => message.is_pinned)
 
   return (
     <div className="flex h-full flex-col bg-slate-950">
@@ -410,6 +431,33 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
         </div>
       )}
 
+      {pinnedMessage && (
+        <div 
+        onClick={() => {
+          document.getElementById(`message-${pinnedMessage.id}`)?.scrollIntoView({
+            behavior: "smooth",
+            block: "center"
+          })
+        }}
+        className="border-b border-slate-800 bg-slate-900 px-4 py-3 cursor-pointer"
+        >
+          <div className="mx-auto flex max-w-4xl items-center gap-3">
+            <Pin size={18} className="shrink-0 text-blue-400"/>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-blue-400">
+                Pinned message . {pinnedMessage.sender}
+              </p>
+              <p className="truncate text-sm text-slate-200">
+                {pinnedMessage.is_deleted ? "This message was deleted " : pinnedMessage.content}
+              </p>
+            </div>
+            <span className="shrink-0 text-xs text-slate-500">
+              {new Date(pinnedMessage.pinned_at!).toLocaleDateString()}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
 
       <div
@@ -475,6 +523,7 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
             return (
               <div
                 key={message.id}
+                id={`message-${message.id}`}
                 className={`flex w-full ${
                   isOwnMessage ? "justify-end" : "justify-start"
                 }`}
@@ -563,32 +612,45 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
                       isOwnMessage ? "justify-end" : "justify-start"
                     }`}
                   >
-                    {isOwnMessage &&
-                      !message.is_deleted &&
-                      editingMessageId !== message.id && (
-                        <div className="mb-1 flex justify-end">
+                    {
+                      !message.is_deleted && editingMessageId !== message.id && (
+                        <div className="mb-1 flex items-center justify-end gap-3">
                           <button
-                            onClick={() => {
-                              setEditingMessageId(message.id);
-                              setEditContent(message.content);
-                              setEditError(null);
-                            }}
-                            className="text-xs text-slate-400 transition
-                                                hover:text-blue-400"
+                          onClick={() => handleTooglePin(message.id)}
+                            disabled={!isConnected}
+                            title={message.is_pinned ? "Unpin message" : "Pin message"}
+                            className={`flex items-center gap-1 text-xs transition 
+                              ${message.is_pinned ? "text-blue-400 hover:text-blue-300" : "text-slate-400 hover:text-blue-400"} disabled:opacity-50`}
                           >
-                            Edit
+                            {message.is_pinned ? <PinOff size={13} /> : <Pin size={13} />}
+                            {message.is_pinned ? "Unpin" : "Pin"}
                           </button>
-                          <button
-                          onClick = {() => {
-                            handleDeleteMessage(message.id)
-        
-                          }}
-                          className="ml-2 text-xs text-red-400 hover:text-red-300"
-                          >
-                            Delete
-                          </button>
+                          {
+                            isOwnMessage && (
+                              <>
+                              <button
+                              onClick={() => {
+                                setEditingMessageId(message.id);
+                                setEditContent(message.content)
+                                setEditError(null)
+                              }}
+
+                              className="text-xs text-slate-400 transition hover:text-blue-400"
+                              >
+                                Edit
+                              </button>
+                              <button
+                              onClick={() => handleDeleteMessage(message.id)}
+                              className="text-xs text-red-400 hover:text-red-300"
+                              >
+                                Delete
+                              </button>
+                              </>
+                            )
+                          }
                         </div>
-                      )}
+                      )
+                    }
                     <span className="text-slate-500">
                       {new Date(message.created_at).toLocaleTimeString([], {
                         hour: "2-digit",

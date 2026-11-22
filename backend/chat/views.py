@@ -556,3 +556,124 @@ class MessageReactionView(APIView):
             },
             status=status.HTTP_200_OK
         )
+
+class MessagePinView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, conversation_id, message_id):
+        # 1. Verify conversation membership.
+
+        conversation = get_object_or_404(
+            Conversation.objects.select_for_update(),
+            id=conversation_id,
+            participants=request.user
+        )
+
+        # 2. Retrieve the message
+
+        message = get_object_or_404(
+            Message,
+            id=message_id,
+            conversation=conversation
+        )
+
+        # 3. Prevent pinning deleted messages
+
+        if message.is_deleted:
+            return Response(
+                {
+                    "error": "Cannot pin a deleted message."
+                }, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 4. Toggle pinning
+
+        if message.is_pinned:
+            message.is_pinned = False
+            message.pinned_at = None
+            message.pinned_by = None
+            action = "unpinned"
+
+        else:
+            # Unpin the previously pinned message.
+
+            Message.objects.filter(
+                conversation=conversation,
+                is_pinned=True
+            ).update(
+                is_pinned=False,
+                pinned_at=None,
+                pinned_by=None
+            )
+
+            # pin the selected message
+
+            message.is_pinned = True
+            message.pinned_at = timezone.now()
+            message.pinned_by = request.user
+            action="pinned"
+
+        message.save(
+            update_fields=[
+                "is_pinned",
+                "pinned_at",
+                "pinned_by"
+            ]
+        )
+
+        # Broadcast the updated pinned message state.
+
+        def broadcast_pin_update():
+            channel_layer = get_channel_layer()
+
+            if channel_layer is None:
+                logger.error(
+                    "Channel layer unavailable. "
+                    "Could not broadcast pin update for message %s",
+                    message.id
+                )
+                return
+            try:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{conversation_id}",
+                    {
+                        "type": "pin_updated",
+                        "conversation_id": conversation.id,
+                        "message_id": (
+                            message.id if message.is_pinned else None
+                        ),
+                        "is_pinned": message.is_pinned,
+                        "pinned_at": (
+                            message.pinned_at.isoformat()
+                            if message.pinned_at else None
+                        ),
+                        "pinned_by": (
+                            str(message.pinned_by)
+                            if message.pinned_by else None
+                        )
+                    }
+                )
+
+            except Exception:
+                logger.exception(
+                    "Failed to broadcast pin update for message %s",
+                    message.id
+                )
+                
+        transaction.on_commit(broadcast_pin_update)
+
+        return Response(
+            {
+                "message_id": message.id,
+                "conversation_id": conversation.id,
+                "action": action,
+                "is_pinned": message.is_pinned,
+                "pinned_at": message.pinned_at,
+                "pinned_by": (
+                    str(message.pinned_by)
+                    if message.pinned_by else None
+                )
+            },
+            status=status.HTTP_200_OK
+        )

@@ -373,6 +373,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
             })
         )
 
+    async def pin_updated(self, event):
+        await self.send(
+            text_data=json.dumps({
+                "type": "pin_updated",
+                "conversation_id": event["conversation_id"],
+                "message_id": event["message_id"],
+                "is_pinned": event["is_pinned"],
+                "pinned_at": event["pinned_at"],
+                "pinned_by": event["pinned_by"]
+            })
+        )
+
     async def disconnect(self, close_code):
         if hasattr(self, "room_group_name"):
             await self.channel_layer.group_discard(

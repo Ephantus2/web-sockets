@@ -10,6 +10,9 @@ export interface Message {
     is_deleted: boolean;
     deleted_at: string | null;
     reactions?: MessageReaction[];
+    is_pinned: boolean;
+    pinned_at: string | null;
+    pinned_by: string | null;
 }
 
 export interface PaginatedMessages {

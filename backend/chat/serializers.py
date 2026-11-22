@@ -52,6 +52,9 @@ class MessageSerializer(serializers.ModelSerializer):
         many=True,
         read_only=True
     )
+    is_pinned = serializers.BooleanField(read_only=True)
+    pinned_at = serializers.DateTimeField(read_only=True)
+    pinned_by = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model = Message
@@ -66,7 +69,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "edited_at",
             "is_deleted",
             "deleted_at",
-            "reactions"
+            "reactions",
+            "is_pinned",
+            "pinned_at",
+            "pinned_by"
         ]
 
         read_only_fields = [

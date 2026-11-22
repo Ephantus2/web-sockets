@@ -9,6 +9,7 @@ from notifications.models import Notification, NotificationOutbox
 
 from unittest.mock import mock_open, patch
 from channels.layers import InMemoryChannelLayer
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -913,3 +914,193 @@ class ChatAPITests(TestCase):
         self.assertEqual(
             args[1]["reactions"][0]["emoji"], "🔥"
         )
+
+    def test_user_can_pin_message(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important announcement"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/pin/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["action"], "pinned")
+        self.assertTrue(response.data["is_pinned"])
+
+        # verify database persistence
+
+        message.refresh_from_db()
+
+        self.assertTrue(message.is_pinned)
+        self.assertEqual(message.pinned_by, self.bob)
+        self.assertIsNotNone(message.pinned_at)
+
+    def test_user_can_unpin_message(self):
+        message = Message.objects.create(
+            conversation = self.conversation,
+            sender=self.alice,
+            content="Important announcement",
+            is_pinned=True,
+            pinned_by=self.bob,
+            pinned_at=timezone.now()
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/pin/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["action"], "unpinned")
+        self.assertFalse(response.data["is_pinned"])
+
+        message.refresh_from_db()
+
+        self.assertFalse(message.is_pinned)
+
+        self.assertIsNone(message.pinned_by)
+        self.assertIsNone(message.pinned_at)
+
+    def test_pinning_another_message_replaces_previous_pin(self):
+        first_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="First message",
+            is_pinned=True,
+            pinned_by=self.bob,
+            pinned_at=timezone.now()
+        )
+
+        second_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Second message"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{second_message.id}/pin/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(response.data["action"], "pinned")
+
+        first_message.refresh_from_db()
+        second_message.refresh_from_db()
+
+        self.assertFalse(first_message.is_pinned)
+        self.assertTrue(second_message.is_pinned)
+
+        self.assertEqual(
+            Message.objects.filter(
+                conversation=self.conversation,
+                is_pinned=True
+            ).count(),
+            1
+        )
+
+    def test_non_participant_cannot_pin_message(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Protected message"
+        )
+
+        self.client.force_authenticate(user=self.charlie)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/pin/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+        message.refresh_from_db()
+
+        self.assertFalse(message.is_pinned)
+
+    def test_deleted_message_cannot_be_pinned(self):
+        message = Message.objects.create(
+            conversation = self.conversation,
+            sender=self.alice,
+            content="Deleted message",
+            is_deleted=True
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/pin/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        message.refresh_from_db()
+
+        self.assertFalse(message.is_pinned)
+
+    def test_pin_broadcasts_websocket_event(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important announcement"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        with patch(
+            "chat.views.get_channel_layer",
+            return_value = InMemoryChannelLayer()
+        ), patch(
+            "chat.views.async_to_sync"
+        ) as mock_async_to_sync:
+            with self.captureOnCommitCallbacks(
+                execute=True
+            ) as callbacks:
+                response = self.client.post(
+                    f"/api/conversations/{self.conversation.id}/messages/{message.id}/pin/"
+                )
+
+        self.assertEqual(len(callbacks), 1)
+        self.assertEqual(response.status_code, 200)
+
+        # verify broadcast was triggered
+
+        mock_async_to_sync.assert_called_once()
+
+        group_send = mock_async_to_sync.return_value
+
+        group_send.assert_called_once()
+
+        args, kwargs = group_send.call_args
+
+        # verify destination
+
+        self.assertEqual(
+            args[0],
+            f"chat_{self.conversation.id}"
+        )
+
+        # verify event type
+
+        self.assertEqual(
+            args[1]["type"],
+            "pin_updated"
+        )
+
+        # verify pinned message ID
+
+        self.assertEqual(
+            args[1]["message_id"],
+            message.id
+        )
+
+        self.assertTrue(args[1]["is_pinned"])
+

@@ -77,6 +77,26 @@ const updateMessageReactions = useCallback((messageId: number, reactions: Messag
 }, [])
 
 
+const updatePinnedMessage = useCallback((
+    messageId: number | null,
+    isPinned: boolean,
+    pinnedAt: string | null,
+    pinnedBy: string | null
+) => {
+    setMessages((currentMessages) => currentMessages.map((message) => ({
+        ...message,
+        //only the selected message remains pinned.
+
+        is_pinned: message.id === messageId && isPinned,
+
+        // Clear pin metadata from all other messages.
+        pinned_at: message.id === messageId && isPinned ? pinnedAt : null,
+        pinned_by: message.id === messageId && isPinned ? pinnedBy : null,
+    }))
+)
+}, []);
+
+
     useEffect(() => {
         setMessages([]);
         setNextUrl(null)
@@ -93,6 +113,7 @@ const updateMessageReactions = useCallback((messageId: number, reactions: Messag
     updateMessage,
     markMessageDeleted,
     updateMessageReactions,
+    updatePinnedMessage,
     nextUrl,
     loading,
     loadingOlder,

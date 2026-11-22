@@ -85,5 +85,25 @@ export const messageService = {
         );
 
         return response.data
+    },
+
+    // pin or unpin message
+
+    async togglePin(
+        conversationId: number,
+        messageId: number
+    ): Promise<{
+        message_id: number;
+        conversation_id: number;
+        action: "pinned" | "unpinned";
+        is_pinned: boolean;
+        pinned_at: string | null;
+        pinned_by: string | null;
+    }>{
+        const response = await api.post(
+            `/api/conversations/${conversationId}/messages/${messageId}/pin/`
+        )
+
+        return response.data
     }
 }

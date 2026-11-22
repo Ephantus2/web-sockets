@@ -58,6 +58,14 @@ type ServerEvent =
     conversation_id: number,
     reactions: MessageReaction[]
   }
+  | {
+    type: "pin_updated";
+    conversation_id: number;
+    message_id: number | null;
+    is_pinned: boolean;
+    pinned_at: string | null;
+    pinned_by: string | null;
+  }
 
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 30000;
@@ -68,7 +76,13 @@ export function useChatSocket(
   lastMessageId = 0,
   onMessageEdited: (message:  Message) => void,
   onMessageDeleted: (messageId: number) => void,
-  onReactionUpdated: (messageId: number, reactions: MessageReaction[]) => void
+  onReactionUpdated: (messageId: number, reactions: MessageReaction[]) => void,
+  onPinUpdated: (
+    messageId: number | null,
+    isPinned: boolean,
+    pinnedAt: string | null,
+    pinnedBy: string | null
+  ) => void
 ) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -218,6 +232,16 @@ export function useChatSocket(
             return;
           }
 
+          if (data.type === "pin_updated") {
+            onPinUpdated(
+              data.message_id,
+              data.is_pinned,
+              data.pinned_at,
+              data.pinned_by
+            );
+            return;
+          }
+
           if (data.type === "chat_message") {
             onMessageReceived(data.message);
             return;
@@ -322,7 +346,7 @@ export function useChatSocket(
 
       setIsConnected(false);
     };
-  }, [conversationId, onMessageReceived]);
+  }, [conversationId, onMessageReceived, onPinUpdated]);
 
   return {
     isConnected,

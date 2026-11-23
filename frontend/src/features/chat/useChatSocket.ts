@@ -98,7 +98,7 @@ export function useChatSocket(
   const [readReceipt, setReadReceipt] = useState<ReadReceiptMessage | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([])
 
-  const sendMessage = useCallback((content: string) => {
+  const sendMessage = useCallback((content: string, replyTo: number | null) => {
     const socket = socketRef.current;
 
     if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -108,6 +108,7 @@ export function useChatSocket(
     socket.send(JSON.stringify({
       type: "message",
       message: content,
+      reply_to: replyTo
     }));
   }, []);
 

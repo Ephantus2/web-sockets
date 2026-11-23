@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageCircle, RefreshCw, Search, X, ArrowLeft, Pin, PinOff, Forward } from "lucide-react";
+import {
+  MessageCircle,
+  RefreshCw,
+  Search,
+  X,
+  ArrowLeft,
+  Pin,
+  PinOff,
+  Forward,
+  Reply,
+} from "lucide-react";
 
 import { useMessages } from "./useMessages";
 import { useChatSocket } from "./useChatSocket";
@@ -14,10 +24,14 @@ import MessageReactions from "./MessageReactions";
 interface MessagePanelProps {
   conversationId: number;
   onBack: () => void;
-  conversations: Conversation[]
+  conversations: Conversation[];
 }
 
-const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelProps) => {
+const MessagePanel = ({
+  conversationId,
+  onBack,
+  conversations,
+}: MessagePanelProps) => {
   const {
     messages,
     setMessages,
@@ -49,10 +63,16 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
 
   // message forwading
 
-  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null)
-  const [selectedDestinations, setSelectedDestinations] = useState<number[]>([])
-  const [forwarding, setForwarding] = useState(false)
-  const [forwardError, setForwardError] = useState<string | null>(null)
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(
+    null,
+  );
+  const [selectedDestinations, setSelectedDestinations] = useState<number[]>(
+    [],
+  );
+  const [forwarding, setForwarding] = useState(false);
+  const [forwardError, setForwardError] = useState<string | null>(null);
+
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -111,6 +131,7 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
     (message: (typeof messages)[number]) => {
       setMessages((previousMessages) => {
         //prevent duplicate messages
+        console.log("Incoming message:", message)
 
         if (previousMessages.some((item) => item.id == message.id)) {
           return previousMessages;
@@ -125,18 +146,18 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
     try {
       const response = await messageService.togglePin(
         conversationId,
-        messageId
-      )
+        messageId,
+      );
       updatePinnedMessage(
         response.message_id,
         response.is_pinned,
         response.pinned_at,
-        response.pinned_by
-      )
+        response.pinned_by,
+      );
     } catch (error) {
       console.error("Failed to toggle message pin:", error);
     }
-  }
+  };
 
   // Establish the websocket connection
 
@@ -160,7 +181,7 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
     updateMessage,
     markMessageDeleted,
     updateMessageReactions,
-    updatePinnedMessage
+    updatePinnedMessage,
   );
 
   // clear previous conversation's read statuses.
@@ -209,7 +230,8 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
   // send messages through the websocket
 
   const handleSendMessage = async (content: string) => {
-    sendMessage(content);
+    sendMessage(content, replyingTo?.id ?? null);
+    setReplyingTo(null);
   };
 
   const handleEditMessage = async (messageId: number) => {
@@ -258,67 +280,66 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
       const response = await messageService.toggleReaction(
         conversationId,
         messageId,
-        emoji
+        emoji,
       );
-      updateMessageReactions(
-        messageId,
-        response.reactions
-      )
+      updateMessageReactions(messageId, response.reactions);
     } catch (error) {
-      console.error(
-        "Failed to toogle reaction:", error
-      )
+      console.error("Failed to toogle reaction:", error);
     }
-  } 
+  };
 
   const handleOpenForward = (message: Message) => {
-    setForwardingMessage(message)
-    setSelectedDestinations([])
-    setForwardError(null)
-  }
+    setForwardingMessage(message);
+    setSelectedDestinations([]);
+    setForwardError(null);
+  };
 
   const handleToggleDestination = (conversationId: number) => {
-    setSelectedDestinations((previous) => previous.includes(conversationId) ? previous.filter((id) => id !== conversationId) : 
-  [...previous, conversationId])
-  }
+    setSelectedDestinations((previous) =>
+      previous.includes(conversationId)
+        ? previous.filter((id) => id !== conversationId)
+        : [...previous, conversationId],
+    );
+  };
 
   const handleForwardMessage = async () => {
     if (!forwardingMessage || selectedDestinations.length === 0) {
-      return
+      return;
     }
 
     try {
-      setForwarding(true)
-      setForwardError(null)
+      setForwarding(true);
+      setForwardError(null);
 
       const response = await messageService.forwardMessage(
         conversationId,
         forwardingMessage.id,
-        selectedDestinations
-      )
+        selectedDestinations,
+      );
 
       // if the current conversation is also a destination
       // refresh its message to display the forwarded copy
 
-      if (selectedDestinations.includes(conversationId)){
-        await refreshMessages
+      if (selectedDestinations.includes(conversationId)) {
+        await refreshMessages;
       }
 
       console.log(`
-        Successfully forwarded a message to ${response.forwarded_count} conversations.`)
-      
-        setForwardingMessage(null)
-        setSelectedDestinations([])
+        Successfully forwarded a message to ${response.forwarded_count} conversations.`);
+
+      setForwardingMessage(null);
+      setSelectedDestinations([]);
     } catch (error: any) {
       console.error("Failed to forward message:", error);
 
       setForwardError(
-        error.response?.data?.error || "Unable to forward message. Please try again."
-      )
+        error.response?.data?.error ||
+          "Unable to forward message. Please try again.",
+      );
     } finally {
-      setForwarding(false)
+      setForwarding(false);
     }
-  }
+  };
 
   // scroll to the latest message
 
@@ -339,7 +360,7 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
     });
   }, [messages]);
 
-  const pinnedMessage = messages.find((message) => message.is_pinned)
+  const pinnedMessage = messages.find((message) => message.is_pinned);
 
   return (
     <div className="flex h-full flex-col bg-slate-950">
@@ -478,8 +499,10 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
                   {message.sender}
                 </p>
                 <p className="text-sm text-slate-200">
-                    {message.is_deleted ? "This message was deleted" : message.content}
-                    </p>
+                  {message.is_deleted
+                    ? "This message was deleted"
+                    : message.content}
+                </p>
                 <p className="mt-2 text-xs text-slate-500">
                   {new Date(message.created_at).toLocaleString()}
                 </p>
@@ -490,23 +513,27 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
       )}
 
       {pinnedMessage && (
-        <div 
-        onClick={() => {
-          document.getElementById(`message-${pinnedMessage.id}`)?.scrollIntoView({
-            behavior: "smooth",
-            block: "center"
-          })
-        }}
-        className="border-b border-slate-800 bg-slate-900 px-4 py-3 cursor-pointer"
+        <div
+          onClick={() => {
+            document
+              .getElementById(`message-${pinnedMessage.id}`)
+              ?.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+              });
+          }}
+          className="border-b border-slate-800 bg-slate-900 px-4 py-3 cursor-pointer"
         >
           <div className="mx-auto flex max-w-4xl items-center gap-3">
-            <Pin size={18} className="shrink-0 text-blue-400"/>
+            <Pin size={18} className="shrink-0 text-blue-400" />
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-blue-400">
                 Pinned message . {pinnedMessage.sender}
               </p>
               <p className="truncate text-sm text-slate-200">
-                {pinnedMessage.is_deleted ? "This message was deleted " : pinnedMessage.content}
+                {pinnedMessage.is_deleted
+                  ? "This message was deleted "
+                  : pinnedMessage.content}
               </p>
             </div>
             <span className="shrink-0 text-xs text-slate-500">
@@ -645,89 +672,111 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
                     </div>
                   ) : (
                     <>
-                    {
-                      message.forwarded_from && (
+                      {message.forwarded_from && (
                         <div
-                        className="mb-1 flex items-center gap-1.5
-                        text-xs italic-xs italic text-slate-400">
-                          <Forward size={13}/>
+                          className="mb-1 flex items-center gap-1.5
+                        text-xs italic-xs italic text-slate-400"
+                        >
+                          <Forward size={13} />
                           <span>
-                            Forwarded from {message.forwarded_sender || "another user"}
+                            Forwarded from{" "}
+                            {message.forwarded_sender || "another user"}
                           </span>
                         </div>
-                      )
-                    }
-                    
-                    <div
-                      className={`inline-block rounded-2xl px-4 py-3 text-sm
+                      )}
+
+                      <div
+                        className={`inline-block rounded-2xl px-4 py-3 text-sm
                                     ${isOwnMessage ? "rounded-tr-sm bg-blue-600 text-white" : "rounded-tl-sm bg-slate-800 text-slate-200"}`}
-                    >
-                      {message.content}
-                    </div>
+                      >
+                        {message.reply_to && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              document
+                                .getElementById(`message-${message.reply_to}`)
+                                ?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "center",
+                                });
+                            }}
+                            className="mb-2 block w-full max-w-full rounded-lg border-l-4 border-blue-500 bg-slate-800/80 px-3 py-2 text-left hover:bg-slate-700 transition"
+                          >
+                            <p className="text-xs font-semibold text-slate-400">{message.reply_sender || "Original sender"}</p>
+                            <p className="truncate text-xs text-slate-300">{message.reply_content || "Original Message"}</p>
+                          </button>
+                        )}
+                        {message.content}
+                      </div>
 
-          
                       <MessageReactions
-                      reactions={message.reactions ?? []}
-                      currentUsername={user?.username}
-                      onReact={(emoji) => handleReact(message.id, emoji)}
-                      disabled={!isConnected}
-                       />
-                  
-
+                        reactions={message.reactions ?? []}
+                        currentUsername={user?.username}
+                        onReact={(emoji) => handleReact(message.id, emoji)}
+                        disabled={!isConnected}
+                      />
                     </>
-
                   )}
                   <div
                     className={`mt-1 flex items-center gap-1 text-xs ${
                       isOwnMessage ? "justify-end" : "justify-start"
                     }`}
                   >
-                    {
-                      !message.is_deleted && editingMessageId !== message.id && (
-                        <div className="mb-1 flex items-center justify-end gap-3">
-                          <button
+                    {!message.is_deleted && editingMessageId !== message.id && (
+                      <div className="mb-1 flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => setReplyingTo(message)}
+                          title="Reply to message"
+                          className="rounded p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white transition"
+                        >
+                          <Reply size={16} />
+                        </button>
+
+                        <button
                           onClick={() => handleTooglePin(message.id)}
-                            disabled={!isConnected}
-                            title={message.is_pinned ? "Unpin message" : "Pin message"}
-                            className={`flex items-center gap-1 text-xs transition 
+                          disabled={!isConnected}
+                          title={
+                            message.is_pinned ? "Unpin message" : "Pin message"
+                          }
+                          className={`flex items-center gap-1 text-xs transition 
                               ${message.is_pinned ? "text-blue-400 hover:text-blue-300" : "text-slate-400 hover:text-blue-400"} disabled:opacity-50`}
-                          >
-                            {message.is_pinned ? <PinOff size={13} /> : <Pin size={13} />}
-                            {message.is_pinned ? "Unpin" : "Pin"}
-                          </button>
-                          {
-                            isOwnMessage && (
-                              <>
-                              <button
+                        >
+                          {message.is_pinned ? (
+                            <PinOff size={13} />
+                          ) : (
+                            <Pin size={13} />
+                          )}
+                          {message.is_pinned ? "Unpin" : "Pin"}
+                        </button>
+                        {isOwnMessage && (
+                          <>
+                            <button
                               onClick={() => {
                                 setEditingMessageId(message.id);
-                                setEditContent(message.content)
-                                setEditError(null)
+                                setEditContent(message.content);
+                                setEditError(null);
                               }}
-
                               className="text-xs text-slate-400 transition hover:text-blue-400"
-                              >
-                                Edit
-                              </button>
-                              <button
+                            >
+                              Edit
+                            </button>
+                            <button
                               onClick={() => handleDeleteMessage(message.id)}
                               className="text-xs text-red-400 hover:text-red-300"
-                              >
-                                Delete
-                              </button>
-                              <button
+                            >
+                              Delete
+                            </button>
+                            <button
                               onClick={() => handleOpenForward(message)}
                               title="Forward message"
                               className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-700 hover:text-white"
-                              >
-                                <Forward size={16}/>
-                              </button>
-                              </>
-                            )
-                          }
-                        </div>
-                      )
-                    }
+                            >
+                              <Forward size={16} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
                     <span className="text-slate-500">
                       {new Date(message.created_at).toLocaleTimeString([], {
                         hour: "2-digit",
@@ -769,107 +818,135 @@ const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelPro
 
       {/* Message input */}
 
+      {replyingTo && (
+        <div
+          className="flex items-center justify-between gap-3
+          border-t border-slate-700 bg-slate-800 px-4 py-3"
+        >
+          <div className="min-w-0 border-l-4 border-blue-500 pl-3">
+            <p className="text-xs font-semibold text-blue-400">
+              Replying to {replyingTo.sender}
+            </p>
+            <p className="truncate text-sm text-slate-300">
+              {replyingTo.content}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReplyingTo(null)}
+            title="Cancel reply"
+            className="shrink-0 rounded-lg p-2 text-slate-400 hover:bg-slate-700 hover:text-white"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
+
       <MessageComposer
         onSend={handleSendMessage}
         onTyping={sendTyping}
         disabled={!isConnected}
       />
 
-      {
-        forwardingMessage && (
-          <div className="fixed inset-o z-50 flex items-center justify-center bg-black/70 p-4">
-            <div className="w-full max-w-md rounded-xs border border-slate-700 bg-slate-900 p-5 shadow-2xl">
-              {/* Dialog header */}
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-white">Forward message</h2>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Select one or more conversations
-                  </p>
-                </div>
-                <button
+      {forwardingMessage && (
+        <div className="fixed inset-o z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-xs border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+            {/* Dialog header */}
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-white">
+                  Forward message
+                </h2>
+                <p className="mt-1 text-xs text-slate-400">
+                  Select one or more conversations
+                </p>
+              </div>
+              <button
                 onClick={() => setForwardingMessage(null)}
                 disabled={forwarding}
                 className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
-                >
-                  <X size={20}/>
-                </button>
-              </div>
+              >
+                <X size={20} />
+              </button>
+            </div>
 
-              {/* Message preview */}
+            {/* Message preview */}
 
-              <div className="mb-4 rounded-lg bg-slate-800 p-3">
-                <p className="text-xs font-semibold text-slate-400">
-                  {forwardingMessage.sender}
-                </p>
-                <p className="mt-1 line-clamp-3 text-sm text-slate-200">
-                  {forwardingMessage.content}
-                </p>
-              </div>
-              {/* Available destinations */}
+            <div className="mb-4 rounded-lg bg-slate-800 p-3">
+              <p className="text-xs font-semibold text-slate-400">
+                {forwardingMessage.sender}
+              </p>
+              <p className="mt-1 line-clamp-3 text-sm text-slate-200">
+                {forwardingMessage.content}
+              </p>
+            </div>
+            {/* Available destinations */}
 
-              <div className="max-h-64 space-y-2 overflow-y-auto">
-                {
-                  conversations.filter((conversation) => conversation.id !== conversationId).map((conversation) => (
-                    <label
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {conversations
+                .filter((conversation) => conversation.id !== conversationId)
+                .map((conversation) => (
+                  <label
                     key={conversation.id}
                     className="flex cursor-pointer items-center gap-3 rounded-lg
                     p-3 transition hover:bg-slate-800"
-                    >
-                      <input type="checkbox"
-                      checked = {selectedDestinations.includes(conversation.id)}
-                      onChange={() => handleToggleDestination(conversation.id)} 
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedDestinations.includes(conversation.id)}
+                      onChange={() => handleToggleDestination(conversation.id)}
                       disabled={forwarding}
-                      className="h-4 w-4 accent-blue-500"/>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-white">
-                          {conversation.name || `Conversation ${conversation.id}`}
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          {conversation.participants.length} participants
-                        </p>
-                      </div>
-                    </label>
-                  ))
-                }
+                      className="h-4 w-4 accent-blue-500"
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-white">
+                        {conversation.name || `Conversation ${conversation.id}`}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {conversation.participants.length} participants
+                      </p>
+                    </div>
+                  </label>
+                ))}
 
-                {
-                  conversations.filter((conversation) => conversation.id !== conversationId).length === 0 && (
-                    <p className="py-8 text-center text-sm text-slate-400">No other conversations available.</p>
-                  )
-                }
-              </div>
-              {/* Error */}
-
-              {forwardError && (
-                <p className="mt-3 rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
-                  {forwardError}
+              {conversations.filter(
+                (conversation) => conversation.id !== conversationId,
+              ).length === 0 && (
+                <p className="py-8 text-center text-sm text-slate-400">
+                  No other conversations available.
                 </p>
               )}
+            </div>
+            {/* Error */}
 
-              {/* Footer */}
-              <div className="mt-5 flex justify-end gap-3">
-                <button
+            {forwardError && (
+              <p className="mt-3 rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
+                {forwardError}
+              </p>
+            )}
+
+            {/* Footer */}
+            <div className="mt-5 flex justify-end gap-3">
+              <button
                 onClick={() => setForwardingMessage(null)}
                 disabled={forwarding}
                 className="rounded-lg px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
+              >
+                Cancel
+              </button>
+              <button
                 onClick={handleForwardMessage}
                 disabled={forwarding || selectedDestinations.length === 0}
                 className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2
                 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Forward size={16} />
-                  {forwarding ? "Forwarding..." : "Forward"}
-                </button>
-              </div>
+              >
+                <Forward size={16} />
+                {forwarding ? "Forwarding..." : "Forward"}
+              </button>
             </div>
           </div>
-        )
-      }
+        </div>
+      )}
     </div>
   );
 };

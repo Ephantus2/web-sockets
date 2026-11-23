@@ -22,8 +22,8 @@ export const messageService = {
 
     // send a message through the Rest API
 
-    async sendMessage(conversationId: number, content: string): Promise<Message> {
-        const response = await api.post<Message>(`/api/conversations/${conversationId}/messages/`, { content })
+    async sendMessage(conversationId: number, content: string, replyTo: number | null = null): Promise<Message> {
+        const response = await api.post<Message>(`/api/conversations/${conversationId}/messages/`, { content, reply_to: replyTo })
         return response.data;
     },
 

@@ -16,6 +16,9 @@ export interface Message {
     forwarded_from: number | null;
     forwarded_by: string | null;
     forwarded_sender: string | null;
+    reply_to: number | null;
+    reply_sender: string | null;
+    reply_content: string | null;
 }
 
 export interface PaginatedMessages {

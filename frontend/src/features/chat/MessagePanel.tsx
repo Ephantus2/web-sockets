@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageCircle, RefreshCw, Search, X, ArrowLeft, Pin, PinOff } from "lucide-react";
+import { MessageCircle, RefreshCw, Search, X, ArrowLeft, Pin, PinOff, Forward } from "lucide-react";
 
 import { useMessages } from "./useMessages";
 import { useChatSocket } from "./useChatSocket";
 import MessageComposer from "./MessageComposer";
 import { messageService } from "./messageService";
 import type { Message } from "./types";
+import type { Conversation } from "../conversations/types";
 
 import { useAuth } from "../../context/AuthContext";
 
@@ -13,9 +14,10 @@ import MessageReactions from "./MessageReactions";
 interface MessagePanelProps {
   conversationId: number;
   onBack: () => void;
+  conversations: Conversation[]
 }
 
-const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
+const MessagePanel = ({ conversationId, onBack, conversations }: MessagePanelProps) => {
   const {
     messages,
     setMessages,
@@ -44,6 +46,13 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
   const [editContent, setEditContent] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // message forwading
+
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null)
+  const [selectedDestinations, setSelectedDestinations] = useState<number[]>([])
+  const [forwarding, setForwarding] = useState(false)
+  const [forwardError, setForwardError] = useState<string | null>(null)
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -261,6 +270,55 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
       )
     }
   } 
+
+  const handleOpenForward = (message: Message) => {
+    setForwardingMessage(message)
+    setSelectedDestinations([])
+    setForwardError(null)
+  }
+
+  const handleToggleDestination = (conversationId: number) => {
+    setSelectedDestinations((previous) => previous.includes(conversationId) ? previous.filter((id) => id !== conversationId) : 
+  [...previous, conversationId])
+  }
+
+  const handleForwardMessage = async () => {
+    if (!forwardingMessage || selectedDestinations.length === 0) {
+      return
+    }
+
+    try {
+      setForwarding(true)
+      setForwardError(null)
+
+      const response = await messageService.forwardMessage(
+        conversationId,
+        forwardingMessage.id,
+        selectedDestinations
+      )
+
+      // if the current conversation is also a destination
+      // refresh its message to display the forwarded copy
+
+      if (selectedDestinations.includes(conversationId)){
+        await refreshMessages
+      }
+
+      console.log(`
+        Successfully forwarded a message to ${response.forwarded_count} conversations.`)
+      
+        setForwardingMessage(null)
+        setSelectedDestinations([])
+    } catch (error: any) {
+      console.error("Failed to forward message:", error);
+
+      setForwardError(
+        error.response?.data?.error || "Unable to forward message. Please try again."
+      )
+    } finally {
+      setForwarding(false)
+    }
+  }
 
   // scroll to the latest message
 
@@ -587,6 +645,18 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
                     </div>
                   ) : (
                     <>
+                    {
+                      message.forwarded_from && (
+                        <div
+                        className="mb-1 flex items-center gap-1.5
+                        text-xs italic-xs italic text-slate-400">
+                          <Forward size={13}/>
+                          <span>
+                            Forwarded from {message.forwarded_sender || "another user"}
+                          </span>
+                        </div>
+                      )
+                    }
                     
                     <div
                       className={`inline-block rounded-2xl px-4 py-3 text-sm
@@ -645,6 +715,13 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
                               >
                                 Delete
                               </button>
+                              <button
+                              onClick={() => handleOpenForward(message)}
+                              title="Forward message"
+                              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-700 hover:text-white"
+                              >
+                                <Forward size={16}/>
+                              </button>
                               </>
                             )
                           }
@@ -697,6 +774,102 @@ const MessagePanel = ({ conversationId, onBack }: MessagePanelProps) => {
         onTyping={sendTyping}
         disabled={!isConnected}
       />
+
+      {
+        forwardingMessage && (
+          <div className="fixed inset-o z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="w-full max-w-md rounded-xs border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+              {/* Dialog header */}
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-white">Forward message</h2>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Select one or more conversations
+                  </p>
+                </div>
+                <button
+                onClick={() => setForwardingMessage(null)}
+                disabled={forwarding}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
+                >
+                  <X size={20}/>
+                </button>
+              </div>
+
+              {/* Message preview */}
+
+              <div className="mb-4 rounded-lg bg-slate-800 p-3">
+                <p className="text-xs font-semibold text-slate-400">
+                  {forwardingMessage.sender}
+                </p>
+                <p className="mt-1 line-clamp-3 text-sm text-slate-200">
+                  {forwardingMessage.content}
+                </p>
+              </div>
+              {/* Available destinations */}
+
+              <div className="max-h-64 space-y-2 overflow-y-auto">
+                {
+                  conversations.filter((conversation) => conversation.id !== conversationId).map((conversation) => (
+                    <label
+                    key={conversation.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-lg
+                    p-3 transition hover:bg-slate-800"
+                    >
+                      <input type="checkbox"
+                      checked = {selectedDestinations.includes(conversation.id)}
+                      onChange={() => handleToggleDestination(conversation.id)} 
+                      disabled={forwarding}
+                      className="h-4 w-4 accent-blue-500"/>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">
+                          {conversation.name || `Conversation ${conversation.id}`}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {conversation.participants.length} participants
+                        </p>
+                      </div>
+                    </label>
+                  ))
+                }
+
+                {
+                  conversations.filter((conversation) => conversation.id !== conversationId).length === 0 && (
+                    <p className="py-8 text-center text-sm text-slate-400">No other conversations available.</p>
+                  )
+                }
+              </div>
+              {/* Error */}
+
+              {forwardError && (
+                <p className="mt-3 rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
+                  {forwardError}
+                </p>
+              )}
+
+              {/* Footer */}
+              <div className="mt-5 flex justify-end gap-3">
+                <button
+                onClick={() => setForwardingMessage(null)}
+                disabled={forwarding}
+                className="rounded-lg px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                onClick={handleForwardMessage}
+                disabled={forwarding || selectedDestinations.length === 0}
+                className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2
+                text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Forward size={16} />
+                  {forwarding ? "Forwarding..." : "Forward"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
     </div>
   );
 };

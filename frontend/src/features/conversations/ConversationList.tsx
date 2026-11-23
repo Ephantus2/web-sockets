@@ -1,20 +1,28 @@
-import { useConversations } from "./useConversations";
+
 import { MessageCircle, RefreshCw, Users } from "lucide-react";
 import { conversationService } from "./conversationService";
 import { useCallback, useEffect, useState } from "react";
-import type { UnreadConversation } from "./types";
+import type { UnreadConversation, Conversation } from "./types";
+
 
 interface ConversationListProps {
   selectedConversationId: number | null;
   onSelectConversation: (id: number) => void;
+
+  conversations: Conversation[];
+  loading: boolean;
+  error: string | null;
+  refreshConversations: () => void
 }
 
 const ConversationList = ({
   selectedConversationId,
   onSelectConversation,
+  conversations,
+  loading,
+  error,
+  refreshConversations
 }: ConversationListProps) => {
-  const { conversations, loading, error, refreshConversations } =
-    useConversations();
 
   const [unreadCounts, setUnreadCounts] = useState<UnreadConversation[]>([]);
 

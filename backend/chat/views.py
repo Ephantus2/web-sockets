@@ -99,7 +99,10 @@ class MessageListCreateView(APIView):
 
         messages = Message.objects.filter(
             conversation=conversation
-        ).select_related("sender").prefetch_related(
+        ).select_related("sender",
+                         "forwarded_from__sender",
+                         "forwarded_by"
+                         ).prefetch_related(
             "read_receipts__user",
             "reactions__user"
         ).order_by("-id")
@@ -676,4 +679,145 @@ class MessagePinView(APIView):
                 )
             },
             status=status.HTTP_200_OK
+        )
+
+class MessageForwadedView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, conversation_id, message_id):
+
+        # 1. Verify membership in the source conversation
+
+        source_conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            participants=request.user
+        )
+
+        # 2. Retrieve the original message
+
+        original_message = get_object_or_404(
+            Message,
+            id=message_id,
+            conversation=source_conversation
+        )
+
+        # 3. Prevent forwarding deleted messages
+
+        if original_message.is_deleted:
+            return Response(
+                {"error": "Deleted messages cannot be forwarded."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 4. Validate destination conversation IDs
+
+        destination_ids = request.data.get(
+            "destination_conversation_ids"
+        )
+
+        if not isinstance(destination_ids, list) or not destination_ids:
+            return Response(
+                {"error": "Provide at least one destination conversation ID."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not all(
+            isinstance(pk, int) and not isinstance(pk, bool)
+            for pk in destination_ids
+        ):
+            return Response(
+                {"error": "All destination IDs must be integers."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(destination_ids) != len(set(destination_ids)):
+            return Response(
+                {"error": "Duplicate destination IDs are not allowed."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 5. Retrieve conversations the user belongs to
+
+        destinations = list(
+            Conversation.objects.filter(
+                id__in=destination_ids,
+                participants=request.user
+            )
+        )
+
+        if len(destinations) != len(destination_ids):
+            return Response(
+                {"error": "One or more destination conversations were not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 6. Create forwarded messages
+
+        forwarded_messages = []
+
+        for destination in destinations:
+
+            forwarded_message = Message.objects.create(
+                conversation=destination,
+                sender=request.user,
+                content=original_message.content,
+                forwarded_from=original_message,
+                forwarded_by=request.user
+            )
+
+            destination.save(update_fields=["updated_at"])
+
+            forwarded_messages.append(forwarded_message)
+
+        # 7. Serialize all forwarded messages
+
+        message_data = MessageSerializer(
+            forwarded_messages,
+            many=True
+        ).data
+
+        # 8. Broadcast after transaction commits
+
+        def broadcast_forwarded_messages():
+
+            channel_layer = get_channel_layer()
+
+            if channel_layer is None:
+                logger.error(
+                    "Channel layer unavailable. "
+                    "Could not broadcast forwarded messages."
+                )
+                return
+
+            for forwarded_message, serialized_message in zip(
+                forwarded_messages,
+                message_data
+            ):
+                try:
+                    async_to_sync(channel_layer.group_send)(
+                        f"chat_{forwarded_message.conversation_id}",
+                        {
+                            "type": "chat_message",
+                            "message": serialized_message
+                        }
+                    )
+
+                except Exception:
+                    logger.exception(
+                        "Failed to broadcast forwarded message %s",
+                        forwarded_message.id
+                    )
+
+        transaction.on_commit(broadcast_forwarded_messages)
+
+        # 9. Return the forwarded messages
+
+        return Response(
+            {
+                "forwarded_count": len(forwarded_messages),
+                "messages": message_data
+            },
+            status=status.HTTP_201_CREATED
         )

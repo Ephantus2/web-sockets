@@ -56,6 +56,21 @@ class MessageSerializer(serializers.ModelSerializer):
     pinned_at = serializers.DateTimeField(read_only=True)
     pinned_by = serializers.StringRelatedField(read_only=True)
 
+    forwarded_from = serializers.PrimaryKeyRelatedField(
+        read_only=True
+    )
+
+    forwarded_by = serializers.StringRelatedField(
+        read_only=True
+    )
+
+    forwarded_sender = serializers.CharField(
+        source="forwarded_from.sender.username",
+        read_only=True,
+        allow_null=True
+    )
+
+
     class Meta:
         model = Message
         fields = [
@@ -72,7 +87,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "reactions",
             "is_pinned",
             "pinned_at",
-            "pinned_by"
+            "pinned_by",
+            "forwarded_from",
+            "forwarded_by",
+            "forwarded_sender"
         ]
 
         read_only_fields = [
@@ -84,7 +102,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "is_edited",
             "edited_at",
             "is_deleted",
-            "deleted_at"
+            "deleted_at",
+            "forwarded_from",
+            "forwarded_by",
+            "forwarded_sender"
         ]
     def get_read_by(self, obj):
         return [

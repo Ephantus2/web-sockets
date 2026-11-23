@@ -105,5 +105,23 @@ export const messageService = {
         )
 
         return response.data
+    },
+
+    async forwardMessage(
+        conversationId: number,
+        messageId: number,
+        destinationConversationIds: number[]
+    ): Promise<{
+        forwarded_count: number;
+        messages: Message[];
+    }> {
+        const response = await api.post(
+            `/api/conversations/${conversationId}/messages/${messageId}/forward/`,
+            {
+                destination_conversation_ids: destinationConversationIds
+            }
+        );
+
+        return response.data;
     }
 }

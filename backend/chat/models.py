@@ -72,6 +72,22 @@ class Message(models.Model):
         related_name="pinned_messages"
     )
 
+    forwarded_from = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="forwarded_messages"
+    )
+
+    forwarded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="forwarded_messages"
+    )
+
     class Meta:
         ordering = ["created_at"]
 

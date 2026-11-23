@@ -1,4 +1,6 @@
 
+from turtle import forward
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
@@ -1104,3 +1106,436 @@ class ChatAPITests(TestCase):
 
         self.assertTrue(args[1]["is_pinned"])
 
+    def test_user_can_forward_message_to_another_conversation(self):
+        # Create the original message in the source conversation
+
+        original_message = Message.objects.create(
+            conversation = self.conversation,
+            sender = self.alice,
+            content = "Important project announcement"
+        )
+
+        # create a destination conversation
+
+        destination = Conversation.objects.create(
+            name="Destination Conversation"
+        )
+
+        destination.participants.add(
+            self.bob,
+            self.charlie
+        )
+
+        # Bob forwards Alice's message
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{original_message.id}/forward/",
+            {
+                "destination_conversation_ids": [destination.id]
+            },
+            format="json"
+        )
+
+        # Verify the API response
+        print("\nSTATUS:", response.status_code)
+        print("\nRESPONSE DATA:", response.data)
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["forwarded_count"], 1)
+
+        forwarded_data = response.data["messages"][0]
+
+        self.assertEqual(
+            forwarded_data["content"],
+            "Important project announcement"
+        )
+
+        self.assertEqual(
+            forwarded_data["sender"],
+            str(self.bob)
+        )
+
+        self.assertEqual(
+            forwarded_data["forwarded_from"],
+            original_message.id
+        )
+
+        self.assertEqual(
+            forwarded_data["forwarded_by"],
+            str(self.bob)
+        )
+
+        self.assertEqual(
+            forwarded_data["forwarded_sender"],
+            str(self.alice)
+        )
+
+
+
+    def test_non_participant_cannot_forward_message(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Private message"
+        )
+
+        destination = Conversation.objects.create(
+            name="Destination"
+        )
+
+        destination.participants.add(self.charlie)
+
+        self.client.force_authenticate(user=self.charlie)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/forward/",
+            {"destination_conversation_id": destination.id},
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_cannot_forward_to_non_member_conversation(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important message"
+        )
+
+        destination = Conversation.objects.create(
+            name="Private destination"
+        )
+
+        destination.participants.add(self.charlie)
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/forward/",
+            {"destination_conversation_id": destination.id},
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+
+    def test_deleted_message_cannot_be_forwaded(self):
+        message = Message.objects.create(
+            conversation = self.conversation,
+            sender=self.alice,
+            content="Deleted message",
+            is_deleted=True
+        )
+
+        destination = Conversation.objects.create(
+            name="Destination"
+        )
+
+        destination.participants.add(self.bob)
+
+        self.client.force_authenticate(user=self.bob)
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/forward/",
+            {
+                "destination_conversation_id": destination.id
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_forward_message_requires_destination(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important message"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/forward/",
+            {},
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_user_can_forward_message_to_multiple_conversations(self):
+
+        # create original message
+
+        original_message = Message.objects.create(
+            conversation = self.conversation,
+            sender=self.alice,
+            content="Important project announcement"
+        )
+
+        # Create first destination
+
+        destination_one = Conversation.objects.create(
+            name="Destination One"
+        )
+
+        destination_one.participants.add(
+        self.bob
+        )
+
+        # Create second destination
+
+        destination_two = Conversation.objects.create(
+            name="Destination Two"
+        )
+
+        destination_two.participants.add(self.bob)
+
+        # Authenticate Bob
+
+        self.client.force_authenticate(user=self.bob)
+
+        # Forward to both conversations
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.pk}/messages/{original_message.pk}/forward/",
+            {
+                "destination_conversation_ids":
+                [
+                    destination_one.id,
+                    destination_two.id
+                ]
+            },
+            format="json"
+        )
+
+        # verify response
+
+        self.assertEqual(response.status_code, 201)
+
+        self.assertEqual(response.data["forwarded_count"], 2)
+        self.assertEqual(len(response.data["messages"]), 2)
+
+        # verify both messages were created
+
+        self.assertEqual(
+            Message.objects.filter(
+                forwarded_from=original_message,
+                forwarded_by=self.bob
+            ).count(), 2
+        )
+
+        # verify each destination received a copy
+
+        self.assertEqual(
+            Message.objects.filter(
+                conversation=destination_two,
+                forwarded_from=original_message
+            ).count(),
+            1
+        )
+
+    def test_duplicate_destination_ids_are_rejected(self):
+        original_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important project announcement"
+        )
+
+        destination = Conversation.objects.create(
+            name="Destination"
+        )
+
+        destination.participants.add(self.bob)
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{original_message.id}/forward/",
+            {
+                "destination_conversation_ids": [
+                    destination.id,
+                    destination.id
+                ]
+            },
+            fromat="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["error"],
+            "Duplicate destination IDs are not allowed."
+        )
+
+        self.assertEqual(
+            Message.objects.filter(
+                forwarded_from=original_message
+            ).count(), 0
+        )
+
+    def test_user_cannot_forward_to_unauthorized_destinations(self):
+        original_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important project announcement"
+        )
+
+        # Bob is not a participant in this conversation
+
+        destination = Conversation.objects.create(
+            name="Private Conversation"
+        )
+
+        destination.participants.add(self.alice, self.charlie)
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{original_message.id}/forward/",
+            {
+                "destination_conversation_ids": [destination.id]
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+        self.assertEqual(
+            response.data["error"],
+            "One or more destination conversations were not found."
+        )
+
+        self.assertEqual(
+            Message.objects.filter(
+                forwarded_from=original_message
+            ).count(),
+            0
+        )
+
+    def test_empty_destination_list_is_rejected(self):
+        original_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important project announcement"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.pk}/messages/{original_message.pk}/forward/",
+            {
+                "destination_conversation_ids": []
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["error"],
+            "Provide at least one destination conversation ID."
+        )
+
+    def test_non_integer_destination_id_is_rejected(self):
+        original_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important project announcement"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/{original_message.id}/forward/",
+
+            {
+                "destination_conversation_ids": ["invalid"]
+            },
+            format="json"
+        )
+
+
+        self.assertEqual(response.status_code, 400)
+
+        self.assertEqual(
+            response.data["error"],
+            "All destination IDs must be integers."
+        )
+    
+    def test_forwarded_message_broadcasts_websocket_event(self):
+    
+        # Create original message
+        original_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Important announcement"
+        )
+    
+        # Create destination conversation
+        destination = Conversation.objects.create(
+            name="destination"
+        )
+        destination.participants.add(self.bob, self.charlie)
+    
+        # Authenticate Bob
+        self.client.force_authenticate(user=self.bob)
+    
+        with patch(
+            "chat.views.get_channel_layer",
+            return_value=InMemoryChannelLayer()
+        ), patch(
+            "chat.views.async_to_sync"
+        ) as mock_async_to_sync:
+    
+            with self.captureOnCommitCallbacks(
+                execute=True
+            ) as callbacks:
+    
+                response = self.client.post(
+                    f"/api/conversations/{self.conversation.id}/messages/{original_message.id}/forward/",
+                    {
+                        "destination_conversation_ids": [destination.id]
+                    },
+                    format="json"
+                )
+    
+            # The callback has now executed
+    
+            self.assertEqual(len(callbacks), 1)
+    
+            # Verify API response
+            self.assertEqual(response.status_code, 201)
+    
+            # Verify broadcast was triggered
+            mock_async_to_sync.assert_called_once()
+    
+            group_send = mock_async_to_sync.return_value
+            group_send.assert_called_once()
+    
+            args, kwargs = group_send.call_args
+    
+            # Verify destination conversation
+            self.assertEqual(
+                args[0],
+                f"chat_{destination.id}"
+            )
+    
+            # Verify event type
+            self.assertEqual(
+                args[1]["type"],
+                "chat_message"
+            )
+    
+            # Verify forwarded message content
+            self.assertEqual(
+                args[1]["message"]["content"],
+                "Important announcement"
+            )
+    
+            # Verify forwarding attribution
+            self.assertEqual(
+                args[1]["message"]["forwarded_from"],
+                original_message.id
+            )

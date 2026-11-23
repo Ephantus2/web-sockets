@@ -13,6 +13,9 @@ export interface Message {
     is_pinned: boolean;
     pinned_at: string | null;
     pinned_by: string | null;
+    forwarded_from: number | null;
+    forwarded_by: string | null;
+    forwarded_sender: string | null;
 }
 
 export interface PaginatedMessages {

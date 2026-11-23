@@ -88,6 +88,14 @@ class Message(models.Model):
         related_name="forwarded_messages"
     )
 
+    reply_to = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="replies"
+    )
+
     class Meta:
         ordering = ["created_at"]
 

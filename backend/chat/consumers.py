@@ -26,17 +26,36 @@ def is_conversation_participant(conversation_id, user):
     ).exists()
 
 @database_sync_to_async
-def save_message(converation_id, user, content):
+def save_message(converation_id, user, content, reply_to_id=None):
     with transaction.atomic():
         conversation = get_object_or_404(
             Conversation,
             id=converation_id
         )
 
+        reply_to_message = None
+
+        if reply_to_id is not None:
+            reply_to_message = Message.objects.filter(
+                id=reply_to_id,
+                conversation=conversation
+            ).select_related("sender").first()
+
+            if reply_to_message is None:
+                return {
+                    "error": "The message you are replying to does not exist in this conversation."
+                }
+
+            if reply_to_message.is_deleted:
+                return {
+                    "error": "Cannot reply to a deleted message."
+                }
+
         message = Message.objects.create(
             conversation=conversation,
             sender=user,
-            content=content
+            content=content,
+            reply_to=reply_to_message
         )
 
         # update conversation activity timestamp
@@ -67,7 +86,16 @@ def save_message(converation_id, user, content):
             "conversation": conversation.id,
             "sender": str(message.sender),
             "content": message.content,
-            "created_at": message.created_at.isoformat()
+            "created_at": message.created_at.isoformat(),
+            "reply_to": message.reply_to_id,
+            "reply_sender": (
+                message.reply_to.sender.username
+                if message.reply_to else None
+            ),
+            "reply_content": (
+                message.reply_to.content
+                if message.reply_to else None
+            )
             }
         return {
             "message": message_data,
@@ -132,6 +160,7 @@ def get_missed_messages(conversation_id, user, last_message_id):
         id__gt=last_message_id
     ).select_related(
         "sender",
+        "reply_to__sender",
     ).order_by("id")[:101]
     )
 
@@ -144,7 +173,19 @@ def get_missed_messages(conversation_id, user, last_message_id):
             "conversation": message.conversation_id,
             "sender": str(message.sender),
             "content": message.content,
-            "created_at": message.created_at.isoformat()
+            "created_at": message.created_at.isoformat(),
+             # Reply information
+
+             "reply_to": message.reply_to_id,
+             "reply_sender": (
+                 message.reply_to.sender.username
+                 if message.reply_to
+                 else None
+             ),
+             "reply_content": (
+                 message.reply_to.content if message.reply_to
+                 else None
+             ),
         }
         for message in messages
     ]
@@ -248,6 +289,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
 
             return
+
+        reply_to_id = data.get("reply_to")
+
+        if reply_to_id is not None:
+            if (
+                not isinstance(reply_to_id, int)
+                or isinstance(reply_to_id, bool)
+                or reply_to_id <= 0
+            ):
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "message": "Invalid reply message ID"
+                }))
+
+                return
         
         content = data.get("message", "")
         if not isinstance(content, str) or not content.strip():
@@ -274,8 +330,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
         saved = await save_message(
             self.conversation_id,
             self.user,
-            content.strip()
+            content.strip(),
+            reply_to_id
         )
+
+        if "error" in saved:
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": saved["error"]
+            }))
+
+            return
 
         #Broadcast the message to conversation participants
         await self.channel_layer.group_send(

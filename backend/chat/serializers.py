@@ -70,6 +70,20 @@ class MessageSerializer(serializers.ModelSerializer):
         allow_null=True
     )
 
+    reply_to = serializers.PrimaryKeyRelatedField(
+        read_only=True
+    )
+    reply_sender = serializers.CharField(
+        source="reply_to.sender.username",
+        read_only=True,
+        allow_null=True
+    )
+    reply_content = serializers.CharField(
+        source="reply_to.content",
+        read_only=True,
+        allow_null=True
+    )
+
 
     class Meta:
         model = Message
@@ -90,7 +104,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "pinned_by",
             "forwarded_from",
             "forwarded_by",
-            "forwarded_sender"
+            "forwarded_sender",
+            "reply_to",
+            "reply_sender",
+            "reply_content"
         ]
 
         read_only_fields = [
@@ -105,7 +122,10 @@ class MessageSerializer(serializers.ModelSerializer):
             "deleted_at",
             "forwarded_from",
             "forwarded_by",
-            "forwarded_sender"
+            "forwarded_sender",
+            "reply_to",
+            "reply_sender",
+            "reply_content"
         ]
     def get_read_by(self, obj):
         return [

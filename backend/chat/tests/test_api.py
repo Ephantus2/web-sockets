@@ -13,6 +13,9 @@ from unittest.mock import mock_open, patch
 from channels.layers import InMemoryChannelLayer
 from django.utils import timezone
 
+
+from asgiref.sync import async_to_sync
+
 User = get_user_model()
 
 
@@ -1214,7 +1217,7 @@ class ChatAPITests(TestCase):
 
         response = self.client.post(
             f"/api/conversations/{self.conversation.id}/messages/{message.id}/forward/",
-            {"destination_conversation_id": destination.id},
+            {"destination_conversation_ids": [destination.id]},
             format="json"
         )
 
@@ -1361,7 +1364,7 @@ class ChatAPITests(TestCase):
                     destination.id
                 ]
             },
-            fromat="json"
+            format="json"
         )
 
         self.assertEqual(response.status_code, 400)
@@ -1539,3 +1542,80 @@ class ChatAPITests(TestCase):
                 args[1]["message"]["forwarded_from"],
                 original_message.id
             )
+    def test_user_can_reply_to_message(self):
+        original = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="Original message"
+        )
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/",
+            {
+                "content": "This is a reply",
+                "reply_to": original.id
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["reply_to"], original.id)
+        self.assertEqual(response.data["reply_sender"], self.bob.username)
+        self.assertEqual(response.data["reply_content"], "Original message")
+
+        reply = Message.objects.get(id=response.data["id"])
+
+        self.assertEqual(reply.reply_to, original)
+        self.assertEqual(reply.sender, self.alice)
+
+    def test_user_cannot_reply_to_message_in_another_conversation(self):
+        other_conversation = Conversation.objects.create()
+
+        other_conversation.participants.add(
+            self.alice,
+            self.bob
+        )
+
+        original = Message.objects.create(
+            conversation=other_conversation,
+            sender=self.bob,
+            content="Message from another conversation"
+        )
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/",
+            {
+                "content": "Invalid reply",
+                "reply_to": original.id
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_cannot_reply_to_deleted_message(self):
+        original = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="Deleted message",
+            is_deleted=True
+        )
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.post(
+            f"/api/conversations/{self.conversation.id}/messages/",
+            {
+                "content": "Reply to deleted message",
+                "reply_to": original.id
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+   

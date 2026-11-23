@@ -375,3 +375,153 @@ class ChatConsumerTests(TransactionTestCase):
             conversation=self.conversation,
             content="Automated WebSocket test"
         ).exists()
+
+    @database_sync_to_async
+    def reply_exists(self, original_message_id):
+        return Message.objects.filter(
+            conversation=self.conversation,
+            content="This is a reply",
+            reply_to_id=original_message_id,
+            sender=self.alice
+        ).exists()
+    
+
+    @patch("chat.consumers.dispatch_pending_notification_outbox.delay")
+    def test_user_can_send_reply_through_websocket(self, mock_notification_task):
+        original = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="Original message"
+        )
+
+        token = self.get_token(self.alice)
+
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{self.conversation.id}/?token={token}",
+            headers=[
+                (b"origin", b"http://testserver")
+            ]
+        )
+
+        async def run_test():
+            connected, close_code = await communicator.connect()
+            self.assertTrue(connected)
+
+            await communicator.receive_json_from()
+            await communicator.send_json_to({
+                "type": "message",
+                "message": "This is a reply",
+                "reply_to": original.id
+            })
+
+            response = await communicator.receive_json_from()
+
+            self.assertEqual(response["type"], "chat_message")
+
+            message = response["message"]
+
+            self.assertEqual(message["content"], "This is a reply")
+            self.assertEqual(message["reply_to"], original.id)
+
+            self.assertEqual(message["reply_sender"], self.bob.username)
+
+            self.assertEqual(message["reply_sender"], "Original message")
+
+            self.assertTrue(
+                await self.reply_exists(original.id)
+            )
+
+            mock_notification_task.assert_called_once()
+
+            await communicator.disconnect()
+
+            async_to_sync(run_test)()
+
+    def test_user_cannot_reply_to_deleted_message_through_websocket(self):
+        deleted_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="Deleted original message",
+            is_deleted=True
+        )
+
+        token = self.get_token(self.alice)
+
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{self.conversation.id}/?token={token}",
+            headers=[
+                (b"origin", b"http://testserver")
+            ]
+        )
+
+        async def run_test():
+            connected, close_code = await communicator.connect()
+            self.assertTrue(connected, f"Connection rejected: {close_code}")
+
+            await communicator.receive_json_from()
+
+            await communicator.send_json_to({
+                "type": "message",
+                "message": "Trying to reply to a deleted message",
+                "reply_to": deleted_message.id
+            })
+
+            response = await communicator.receive_json_from()
+
+            self.assertEqual(response["type"], "error")
+            self.assertIn("deleted", response["message"].lower())
+
+            self.assertFalse(
+                await self.reply_exists(deleted_message.id)
+            )
+
+            await communicator.disconnect()
+
+        async_to_sync(run_test)()
+
+    def test_user_cannot_reply_to_message_in_another_conversation(self):
+        other_conversation = Conversation.objects.create()
+        other_conversation.participants.add(self.alice, self.bob)
+    
+        original = Message.objects.create(
+            conversation=other_conversation,
+            sender=self.bob,
+            content="Message from another conversation"
+        )
+    
+        token = self.get_token(self.alice)
+    
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/chat/{self.conversation.id}/?token={token}",
+            headers=[
+                (b"origin", b"http://testserver")
+            ]
+        )
+    
+        async def run_test():
+            connected, close_code = await communicator.connect()
+            self.assertTrue(connected, f"Connection rejected: {close_code}")
+    
+            await communicator.receive_json_from()
+    
+            await communicator.send_json_to({
+                "type": "message",
+                "message": "Invalid cross-conversation reply",
+                "reply_to": original.id
+            })
+    
+            response = await communicator.receive_json_from()
+    
+            self.assertEqual(response["type"], "error")
+            self.assertIn("does not exist", response["message"].lower())
+    
+            self.assertFalse(
+                await self.reply_exists(original.id)
+            )
+    
+            await communicator.disconnect()
+    
+        async_to_sync(run_test)()

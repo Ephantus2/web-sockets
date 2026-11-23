@@ -101,7 +101,8 @@ class MessageListCreateView(APIView):
             conversation=conversation
         ).select_related("sender",
                          "forwarded_from__sender",
-                         "forwarded_by"
+                         "forwarded_by",
+                         "reply_to__sender"
                          ).prefetch_related(
             "read_receipts__user",
             "reactions__user"
@@ -130,7 +131,35 @@ class MessageListCreateView(APIView):
             pk=conversation_id,
             participants=request.user
         )
+        # Identify tge message being replied to, if provided.
 
+        reply_to_id = request.data.get("reply_to")
+        reply_to_message = None
+
+        if reply_to_id not in (None, ""):
+            try:
+                reply_to_id = int(reply_to_id)
+            except (TypeError, ValueError):
+                return Response(
+                    {"error": "Invalid reply_to_message ID."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # The original message must belong to this conversation.
+
+            reply_to_message = get_object_or_404(
+                Message,
+                id=reply_to_id,
+                conversation=conversation
+            )
+
+            # |Do not allow replies to deleted messages.
+
+            if reply_to_message.is_deleted:
+                return Response(
+                    {"error": "Cannot reply to a deleted message."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         serializer = MessageSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -140,7 +169,8 @@ class MessageListCreateView(APIView):
 
                 message = serializer.save(
                     conversation=conversation,
-                    sender=request.user
+                    sender=request.user,
+                    reply_to=reply_to_message
                 )
 
                 conversation.save(update_fields=["updated_at"])

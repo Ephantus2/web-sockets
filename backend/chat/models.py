@@ -177,3 +177,39 @@ class MessageReaction(models.Model):
 
         def __str__(self):
             return f"{self.user} reacted {self.emoji} to message {self.message_id}"
+
+
+class MessageEditHistory(models.Model):
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="edit_history"
+    )
+
+    previous_content = models.TextField(
+        max_length=5000
+    )
+
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="message_edits"
+    )
+
+    edited_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        ordering = ["-edited_at"]
+
+        indexes = [
+            models.Index(
+                fields=["message", "edited_at"],
+                name="chat_msg_edit_history_idx"
+            )
+        ]
+
+    def __str__(self):
+        return f"Edit: history for message {self.message_id}"

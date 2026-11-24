@@ -3,11 +3,12 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_list_or_404, get_object_or_404
-from .models import Conversation, Message, MessageReaction
+from .models import Conversation, Message, MessageReaction, MessageEditHistory
 from .serializers import (
     ConversationSerializer,
     MessageSerializer,
-    MessageReactionSerializer
+    MessageReactionSerializer,
+    MessageEditHistorySerializer
 )
 from .pagination import MessageCursorPagination
 
@@ -16,8 +17,6 @@ from rest_framework.exceptions import ValidationError
 
 from django.db.models import Count, OuterRef, Subquery, IntegerField, Value
 from django.db.models.functions import Coalesce
-
-from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 from notifications.tasks import create_message_notifications
@@ -30,6 +29,7 @@ from notifications.models import NotificationOutbox
 from notifications.tasks import dispatch_pending_notification_outbox
 
 from django.utils import timezone
+from asgiref.sync import async_to_sync
 
 logger = logging.getLogger(__name__)
 
@@ -389,6 +389,14 @@ class MessageUpdateDeleteView(APIView):
                 "error": "Message content cannot be empty."
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        content = content.strip()
+
+        if content == message.content:
+            return Response(
+                MessageSerializer(message).data,
+                status=status.HTTP_200_OK
+            )
+
         serializer = MessageSerializer(
             message,
             data={"content": content.strip()},
@@ -396,10 +404,17 @@ class MessageUpdateDeleteView(APIView):
         )
 
         if serializer.is_valid():
-            message = serializer.save(
-                is_edited=True,
-                edited_at=timezone.now()
-            )
+            with transaction.atomic():
+                MessageEditHistory.objects.create(
+                    message=message,
+                    previous_content=message.content,
+                    edited_by = request.user
+                )
+
+                message = serializer.save(
+                    is_edited=True,
+                    edited_at=timezone.now()
+                )
 
             message_data = MessageSerializer(message).data
 
@@ -474,6 +489,41 @@ class MessageUpdateDeleteView(APIView):
             message_data,
             status=status.HTTP_200_OK
         )
+
+class MessageEditHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, conversation_id, message_id):
+        # confirm that the user belongs to this conversation.
+
+        conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            participants=request.user
+        )
+
+        # Find the message within this conversation.
+
+        message = get_object_or_404(
+            Message,
+            id=message_id,
+            conversation=conversation
+        )
+
+        # Retrieve previous versions, newest first
+
+        history = MessageEditHistory.objects.filter(
+            message=message
+        ).select_related(
+            "edited_by"
+        ).order_by("-edited_at")
+
+        serializer = MessageEditHistorySerializer(
+            history,
+            many=True
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 class MessageReactionView(APIView):
     permission_classes = [IsAuthenticated]

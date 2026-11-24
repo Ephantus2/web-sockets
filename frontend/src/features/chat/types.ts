@@ -40,3 +40,10 @@ export interface ReactionUpdate {
     conversation_id: number;
     reactions?: MessageReaction[];
 }
+
+export interface MessageEditHistory {
+    id: number;
+    previous_content: string;
+    edited_by: string | null;
+    edited_at: string;
+}

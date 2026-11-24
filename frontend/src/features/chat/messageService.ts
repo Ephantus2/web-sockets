@@ -1,6 +1,6 @@
 import api from "../../api/client";
 
-import type { Message, PaginatedMessages, MessageReaction } from "./types";
+import type { Message, PaginatedMessages, MessageReaction, MessageEditHistory } from "./types";
 
 export const messageService = {
     // retrieve the latest messages in a conversation
@@ -52,6 +52,17 @@ export const messageService = {
     ): Promise<Message>{
         const response = await api.patch<Message>(`/api/conversations/${conversationId}/messages/${messageId}/`,
             { content }
+        )
+
+        return response.data
+    },
+
+    async getMessageEditHistory(
+        conversationId: number,
+        messageId: number
+    ): Promise<MessageEditHistory[]>{
+        const response = await api.get(
+            `/api/conversations/${conversationId}/messages/${messageId}/history/`
         )
 
         return response.data

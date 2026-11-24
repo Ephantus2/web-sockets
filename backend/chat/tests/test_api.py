@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 
 from rest_framework.test import APIClient
 
-from chat.models import Conversation, Message, MessageReaction
+from chat.models import Conversation, Message, MessageEditHistory, MessageReaction
 from notifications.models import Notification, NotificationOutbox
 
 from unittest.mock import mock_open, patch
@@ -1618,4 +1618,57 @@ class ChatAPITests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
-   
+    def test_user_can_edit_own_message_and_save_history(self):
+        original = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Original message"
+        )
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.patch(
+            f"/api/conversations/{self.conversation.id}/messages/{original.id}/",
+            {
+                "content": "Updated message"
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["content"], "Updated message")
+        self.assertTrue(response.data["is_edited"])
+
+        original.refresh_from_db()
+
+        self.assertEqual(original.content, "Updated message")
+        self.assertTrue(original.is_edited)
+        self.assertIsNotNone(original.edited_at)
+
+        history = MessageEditHistory.objects.get(message=original)
+
+        self.assertEqual(history.previous_content, "Original message")
+        self.assertEqual(history.edited_by, self.alice)
+
+    def test_editing_message_without_changes_does_not_create_history(self):
+        original = Message.objects.create(
+            conversation=self.conversation,
+            sender = self.alice,
+            content = "Same message"
+        )
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.patch(
+            f"/api/conversations/{self.conversation.id}/messages/{original.id}/",
+            {
+                "content": "Same message"
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(MessageEditHistory.objects.filter(message=original).count(), 0)
+
+        original.refresh_from_db()
+        self.assertFalse(original.is_edited)

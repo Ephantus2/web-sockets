@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Conversation, Message, MessageReaction
+from .models import Conversation, Message, MessageEditHistory, MessageReaction
 
 User = get_user_model()
 
@@ -132,3 +132,20 @@ class MessageSerializer(serializers.ModelSerializer):
             receipt.user.username for receipt in obj.read_receipts.all()
         ]
 
+class MessageEditHistorySerializer(serializers.ModelSerializer):
+    edited_by = serializers.CharField(
+        source="edited_by.username",
+        read_only=True,
+        allow_null = True
+    )
+
+    class Meta:
+        model = MessageEditHistory
+        fields = [
+            "id",
+            "previous_content",
+            "edited_by",
+            "edited_at"
+        ]
+
+        read_only_fields = fields

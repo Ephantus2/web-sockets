@@ -15,6 +15,7 @@ import { useMessages } from "./useMessages";
 import { useChatSocket } from "./useChatSocket";
 import MessageComposer from "./MessageComposer";
 import { messageService } from "./messageService";
+import MessageEditHistory from "./MessageEditHistory";
 import type { Message } from "./types";
 import type { Conversation } from "../conversations/types";
 
@@ -60,6 +61,7 @@ const MessagePanel = ({
   const [editContent, setEditContent] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [historyMessageId, setHistoryMessageId] = useState<number | null>(null)
 
   // message forwading
 
@@ -131,8 +133,7 @@ const MessagePanel = ({
     (message: (typeof messages)[number]) => {
       setMessages((previousMessages) => {
         //prevent duplicate messages
-        console.log("Incoming message:", message)
-
+        
         if (previousMessages.some((item) => item.id == message.id)) {
           return previousMessages;
         }
@@ -784,7 +785,18 @@ const MessagePanel = ({
                       })}
                     </span>
                     {message.is_edited && !message.is_deleted && (
+                      <>
                       <span className="text-slate-500 italic">Edited</span>
+
+                      <button
+                      type="button"
+                      onClick={() => setHistoryMessageId(message.id)}
+                      className="text-blue-400 transition hover:text-blue-300"
+                      title="View edit history"
+                      >
+                        View History
+                      </button>
+                      </>
                     )}
                     {isOwnMessage && (
                       <span
@@ -947,6 +959,15 @@ const MessagePanel = ({
           </div>
         </div>
       )}
+
+      {
+        historyMessageId && (
+          <MessageEditHistory conversationId={conversationId}
+          messageId={historyMessageId}
+          onClose={() => setHistoryMessageId(null)}
+           />
+        )
+      }
     </div>
   );
 };

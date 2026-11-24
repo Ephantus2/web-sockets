@@ -57,6 +57,12 @@ class Message(models.Model):
         blank=True
     )
 
+    deleted_for = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="hidden_messages"
+    )
+
     is_pinned = models.BooleanField(
         default=False
     )

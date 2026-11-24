@@ -9,6 +9,7 @@ import {
   PinOff,
   Forward,
   Reply,
+  MoreHorizontal
 } from "lucide-react";
 
 import { useMessages } from "./useMessages";
@@ -62,6 +63,7 @@ const MessagePanel = ({
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [historyMessageId, setHistoryMessageId] = useState<number | null>(null)
+  const [openActionMenuId, setOpenActionMenuId] = useState<number | null>(null)
 
   // message forwading
 
@@ -80,6 +82,8 @@ const MessagePanel = ({
 
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const previousScrollHeightRef = useRef<number | null>(null);
+
+  const actionMenuRef = useRef<HTMLDivElement | null>(null)
 
   // Restore read indicators from messages loaded through the rest API.
 
@@ -260,17 +264,49 @@ const MessagePanel = ({
     }
   };
 
+  useEffect(() => {
+    if (openActionMenuId === null) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (
+        actionMenuRef.current && !actionMenuRef.current.contains(event.target as Node)
+      ){
+        setOpenActionMenuId(null);
+      }
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenActionMenuId(null)
+      } 
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleEscape)
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleEscape)
+    }
+  }, [openActionMenuId]);
+
   // handle delete message
 
-  const handleDeleteMessage = async (messageId: number) => {
+  const handleDeleteMessage = async (messageId: number,
+    deleteFor: "me" | "everyone"
+  ) => {
     try {
-      const deletedMessage = await messageService.deleteMessage(
+      const response = await messageService.deleteMessage(
         conversationId,
         messageId,
+        deleteFor,
       );
 
-      // update the messageusing server response.
-      updateMessage(deletedMessage);
+      if (deleteFor === "me") {
+        setMessages((previousMessages) => previousMessages.filter((message) => message.id !== messageId),)
+      } else {
+        updateMessage(response as Message);
+      }
     } catch (error) {
       console.error("Failed to delete message:", error);
     }
@@ -761,12 +797,7 @@ const MessagePanel = ({
                             >
                               Edit
                             </button>
-                            <button
-                              onClick={() => handleDeleteMessage(message.id)}
-                              className="text-xs text-red-400 hover:text-red-300"
-                            >
-                              Delete
-                            </button>
+                            
                             <button
                               onClick={() => handleOpenForward(message)}
                               title="Forward message"
@@ -776,6 +807,47 @@ const MessagePanel = ({
                             </button>
                           </>
                         )}
+
+                        <div className="relative"
+                        ref={openActionMenuId === message.id ? actionMenuRef : null}
+                        >
+                          <button
+                          type="button"
+                          onClick = {() => setOpenActionMenuId((previous) => previous === message.id ? null : message.id)}
+                          title="More message actions"
+                          className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-white"
+                          >
+                            <MoreHorizontal size={18} />
+
+                          </button>
+                          {
+                            openActionMenuId === message.id && (
+                              <div
+                              className="absolute right-0 bottom-full z-30 mb-2 w-44 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl ">
+                                <button
+                              onClick={() => {handleDeleteMessage(message.id, "me")
+                                setOpenActionMenuId(null)
+                              }}
+                              className="block w-full px-3 py-2.5 text-left text-xs text-slate-200 transition hover:bg-slate-800"
+                              
+                            >
+                              Delete for me
+                            </button>
+                            {isOwnMessage && (
+                              <button
+                              onClick={() => {handleDeleteMessage(message.id, "everyone")
+                                setOpenActionMenuId(null)
+                              }}
+                              className="block w-full border-t border-slate-700 px-3 py-2.5 text-left text-xs text-red-400 transition hover:bg-slate-800"
+                              
+                            >
+                              Delete for everyone
+                            </button>
+                            )}
+                              </div>
+                            )
+                          }
+                        </div>
                       </div>
                     )}
                     <span className="text-slate-500">

@@ -1672,3 +1672,104 @@ class ChatAPITests(TestCase):
 
         original.refresh_from_db()
         self.assertFalse(original.is_edited)
+
+    def test_user_can_delete_message_for_themselves(self):
+        self.client.force_authenticate(user=self.alice)
+
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="A message to hide"
+        )
+
+        response = self.client.delete(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/",
+            {"delete_for": "me"},
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        message.refresh_from_db()
+
+        self.assertFalse(message.is_deleted)
+        self.assertTrue(
+            message.deleted_for.filter(id=self.alice.id)
+        )
+
+    def test_sender_can_delete_message_for_everyone(self):
+        self.client.force_authenticate(user=self.alice)
+
+        message = Message.objects.create(
+            conversation = self.conversation,
+            sender=self.alice,
+            content="This message will be deleted for everyone"
+        )
+
+        response = self.client.delete(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/",
+            {"deleted_for": "everyone"},
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        message.refresh_from_db()
+        self.assertTrue(message.is_deleted)
+        self.assertIsNotNone(message.deleted_at)
+
+    def test_user_cannot_delete_another_users_message_for_everyone(self):
+        self.client.force_authenticate(user=self.alice)
+
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="This belongs to another user"
+        )
+
+        response = self.client.delete(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/",
+            {"delete_for": "everyone"},
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        message.refresh_from_db()
+
+        self.assertFalse(message.is_deleted)
+
+    def test_delete_for_me_does_not_affect_other_participants(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="Only one user should hide this"
+        )
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.delete(
+            f"/api/conversations/{self.conversation.id}/messages/{message.id}/",
+            {"delete_for": "me"},
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        message.refresh_from_db()
+
+        # Alice has hidden the message.
+
+        self.assertTrue(
+            message.deleted_for.filter(id=self.alice.id).exists()
+        )
+
+        # Bob has not hidden the message.
+
+        self.assertFalse(
+            message.deleted_for.filter(id=self.bob.id).exists()
+        )
+
+        # the message remains globally available
+
+        self.assertFalse(message.is_deleted)

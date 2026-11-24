@@ -105,9 +105,12 @@ def save_message(converation_id, user, content, reply_to_id=None):
 @database_sync_to_async
 def mark_messages_as_read(conversation_id, user):
     unread_messages = Message.objects.filter(
-        conversation_id=conversation_id
+        conversation_id=conversation_id,
+        is_deleted=False
     ).exclude(
         sender=user
+    ).exclude(
+        deleted_for=user
     ).exclude(
         read_receipts__user=user
     )
@@ -134,9 +137,12 @@ def mark_messages_as_read(conversation_id, user):
 @database_sync_to_async
 def get_unread_message_count(conversation_id, user):
     return Message.objects.filter(
-        conversation_id=conversation_id
+        conversation_id=conversation_id,
+        is_deleted=False
     ).exclude(
         sender=user
+    ).exclude(
+        deleted_for=user
     ).exclude(
         read_receipts__user=user
     ).count()
@@ -157,7 +163,10 @@ def get_missed_messages(conversation_id, user, last_message_id):
 
     messages = list(Message.objects.filter(
         conversation_id=conversation_id,
-        id__gt=last_message_id
+        id__gt=last_message_id,
+        is_deleted=False
+    ).exclude(
+        deleted_for=user
     ).select_related(
         "sender",
         "reply_to__sender",

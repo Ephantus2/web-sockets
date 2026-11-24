@@ -99,7 +99,7 @@ class MessageListCreateView(APIView):
 
         messages = Message.objects.filter(
             conversation=conversation
-        ).select_related("sender",
+        ).exclude(deleted_for=request.user).select_related("sender",
                          "forwarded_from__sender",
                          "forwarded_by",
                          "reply_to__sender"
@@ -444,44 +444,95 @@ class MessageUpdateDeleteView(APIView):
         )
 
     def delete(self, request, conversation_id, message_id):
-        message, error = self.get_message(
-            request,
-            conversation_id,
-            message_id
+        #1 Confirm that the user belongs to the conversation.
+
+        conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            participants=request.user
         )
 
-        if error:
-            return error
+        # 2. Retrieve the message.
 
-        if message.is_deleted:
+        message = get_object_or_404(
+            Message,
+            id=message_id,
+            conversation=conversation
+        )
+
+        # 3. Determine the requested deletion type
+
+        delete_for = request.data.get("delete_for", "everyone")
+
+        if delete_for not in ["me", "everyone"]:
             return Response(
-                {"error": "Message has already been deleted."},
+                {
+                    "error": "Invalid deletion type. Use 'me' or 'everyone'."
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        message.is_deleted = True
-        message.deleted_at = timezone.now()
+        # 4. Delete for the requesting user only.
 
-        message.save(
-            update_fields = ["is_deleted", "deleted_at"]
-        )
+        if delete_for == "me":
+            if message.deleted_for.filter(id=request.user.id).exists():
+                return Response(
+                    {
+                        "error": "Message is already deleted for you."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            message.deleted_for.add(request.user)
 
-        message_data = MessageSerializer(message).data
+            return Response({
+                "message": "Message deleted for you.",
+                "message_id": message.id,
+                "deleted_for": "me"
+            },
+            status=status.HTTP_200_OK
+            )
+
+        # 5. Delete for everyone.
+        # Only the original sender can perform this operation
+
+        if message.sender_id != request.user.id:
+            return Response(
+                {
+                    "error": "Only the sender can delete a message for everyone"
+                }, status=status.HTTP_403_FORBIDDEN
+            )
+
+        if message.is_deleted:
+            return Response(
+                {"error": "message has already been deleted."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            message.is_deleted = True
+            message.deleted_at = timezone.now()
+
+            message.save(
+                update_fields=["is_deleted", "deleted_at"]
+            )
+
+            message_data = MessageSerializer(message).data
 
         # Broadcast the deletion after the database transaction commits
 
-        def broadcast_delete():
-            channel_layer = get_channel_layer()
+            def broadcast_delete():
+                channel_layer = get_channel_layer()
 
-            if channel_layer is not None:
-                async_to_sync(channel_layer.group_send)(
-                    f"chat_{conversation_id}",
-                    {
-                        "type": "message_deleted",
-                        "message_id": message.id,
-                        "conversation_id": conversation_id
-                    }
-                )
+                if channel_layer is not None:
+                    async_to_sync(channel_layer.group_send)(
+                        f"chat_{conversation_id}",
+                        {
+                            "type": "message_deleted",
+                            "message_id": message.id,
+                            "conversation_id": conversation_id,
+                            "deleted_for": "everyone"
+                        }
+                    )
 
         transaction.on_commit(broadcast_delete)
 

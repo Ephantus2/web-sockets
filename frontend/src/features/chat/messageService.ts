@@ -72,10 +72,20 @@ export const messageService = {
 
     async deleteMessage(
         conversationId: number,
-        messageId: number
-    ): Promise<Message> {
+        messageId: number,
+        deleteFor: "me" | "everyone" = "everyone"
+    ): Promise<Message | {
+        message: string;
+        message_id: number;
+        delete_for: "me"
+    }> {
         const response = await api.delete<Message>(
-            `/api/conversations/${conversationId}/messages/${messageId}/`
+            `/api/conversations/${conversationId}/messages/${messageId}/`,
+            {
+                data: {
+                    delete_for: deleteFor
+                }
+            }
         );
         return response.data
     },

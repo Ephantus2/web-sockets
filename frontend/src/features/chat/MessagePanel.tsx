@@ -52,6 +52,9 @@ const MessagePanel = ({
   const { user } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchSender, setSearchSender] = useState("");
+  const [searchDateFrom, setSearchDateFrom] = useState("");
+  const [searchDateTo, setSearchDateTo] = useState("");
   const [searchResults, setSearchResults] = useState<Message[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -84,6 +87,9 @@ const MessagePanel = ({
   const previousScrollHeightRef = useRef<number | null>(null);
 
   const actionMenuRef = useRef<HTMLDivElement | null>(null)
+
+  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
+
 
   // Restore read indicators from messages loaded through the rest API.
 
@@ -119,6 +125,11 @@ const MessagePanel = ({
       const results = await messageService.searchMessages(
         conversationId,
         query,
+        {
+          ...(searchSender ? {sender: Number(searchSender)} : {}),
+          ...(searchDateFrom ? {date_from: searchDateFrom} : {}),
+          ...(searchDateTo ? {date_to: searchDateTo} : {}),
+        },
       );
 
       setSearchResults(results);
@@ -130,6 +141,27 @@ const MessagePanel = ({
       setSearching(false);
     }
   };
+
+  const handleJumpToMessage = (messageId: number) => {
+    const messageElement = document.getElementById(`message-${messageId}`);
+
+    if (!messageElement) {
+      return;
+    }
+
+    messageElement.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
+
+    setHighlightedMessageId(messageId);
+
+    // Remove the highlight after 2.5 seconde
+
+    setTimeout(() => {
+      setHighlightedMessageId((currentId) => messageId ? null : currentId,)
+    }, 2500)
+  }
 
   // Receive messages from the websocket
 
@@ -358,7 +390,7 @@ const MessagePanel = ({
       // refresh its message to display the forwarded copy
 
       if (selectedDestinations.includes(conversationId)) {
-        await refreshMessages;
+        await refreshMessages();
       }
 
       console.log(`
@@ -440,8 +472,12 @@ const MessagePanel = ({
             onClick={() => {
               setShowSearch((previous) => !previous);
               setSearchQuery("");
+              setSearchSender("");
+              setSearchDateFrom("")
+              setSearchDateTo("")
               setSearchResults([]);
               setSearchError(null);
+              setHasSearched(false)
             }}
             title="Search messages"
             className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
@@ -490,8 +526,12 @@ const MessagePanel = ({
               onClick={() => {
                 setShowSearch(false);
                 setSearchQuery("");
+                setSearchSender("");
+                setSearchDateFrom("");
+                setSearchDateTo("")
                 setSearchResults([]);
                 setSearchError(null);
+                setHasSearched(false)
               }}
               title="Close search"
               className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
@@ -499,6 +539,51 @@ const MessagePanel = ({
               <X size={18} />
             </button>
           </form>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {/* Sender filter */}
+            <div>
+              <label className="mb-1 block text-xs font-medium
+              text-slate-400">
+                Sender ID
+              </label>
+              <input
+              type="number"
+              min="1"
+              value={searchSender}
+              onChange={(event) => setSearchSender(event.target.value)}
+              placeholder="Any sender"
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2
+              text-sm text-white outline-none focus:border-blue-500"
+               />
+            </div>
+
+            {/* Start date */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-400">
+                From
+              </label>
+              <input 
+              type="date"
+              value={searchDateFrom}
+              onChange={(event) => setSearchDateFrom(event.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-800
+              px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+            {/* End date */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-400">
+                To
+              </label>
+              <input 
+              type="date"
+              value={searchDateTo}
+              onChange={(event) => setSearchDateTo(event.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-800
+              px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -530,7 +615,9 @@ const MessagePanel = ({
             {searchResults.map((message) => (
               <div
                 key={message.id}
-                className="rounded-lg border border-slate-700 bg-slate-800 p-3"
+                onClick={() => handleJumpToMessage(message.id)}
+                className=" cursor-pointer rounded-lg border border-slate-700 bg-slate-800 p-3
+                transition hover:border-blue-500 hover:bg-blue-700"
               >
                 <p className="mb-1 text-xs font-semibold text-blue-400">
                   {message.sender}
@@ -646,8 +733,10 @@ const MessagePanel = ({
               <div
                 key={message.id}
                 id={`message-${message.id}`}
-                className={`flex w-full ${
+                className={`flex w-full rounded-xl transition-all duration-500${
                   isOwnMessage ? "justify-end" : "justify-start"
+                } ${
+                  highlightedMessageId === message.id ? "bg-yellow-500/20 ring-2 ring-yellow-400" : ""
                 }`}
               >
                 <div className="max-w-[90%] sm:max-w-2xl">

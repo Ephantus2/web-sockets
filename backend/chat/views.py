@@ -260,7 +260,7 @@ class MessageListCreateView(APIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 class MessageSearchView(APIView):
-    permission_classes=[IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, conversation_id):
         conversation = get_object_or_404(
@@ -280,6 +280,7 @@ class MessageSearchView(APIView):
             raise ValidationError({
                 "error": "Search query cannot exceed 200 characters"
             })
+
         search_vector = SearchVector(
             "content",
             config="english"
@@ -291,22 +292,72 @@ class MessageSearchView(APIView):
         )
 
         messages = Message.objects.filter(
-            conversation=conversation
-        ).annotate(
+            conversation=conversation,
+            is_deleted=False
+        ).exclude(
+            deleted_for=request.user
+        )
+
+        # Apply full-text search
+        messages = messages.annotate(
             search=search_vector,
             rank=SearchRank(search_vector, search_query)
         ).filter(
             search=search_query
-        ).select_related(
-            "sender"
+        )
+
+        # Optional sender filter
+        sender_id = request.query_params.get("sender")
+
+        if sender_id:
+            try:
+                sender_id = int(sender_id)
+            except (TypeError, ValueError):
+                raise ValidationError({
+                    "sender": "Sender ID must be an integer."
+                })
+
+            if sender_id <= 0:
+                raise ValidationError({
+                    "sender": "Sender ID must be positive."
+                })
+
+            messages = messages.filter(
+                sender_id=sender_id
+            )
+
+        # Optional date filters
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+
+        if date_from:
+            messages = messages.filter(
+                created_at__date__gte=date_from
+            )
+
+        if date_to:
+            messages = messages.filter(
+                created_at__date__lte=date_to
+            )
+
+        # Optimize database queries
+        messages = messages.select_related(
+            "sender",
+            "forwarded_from__sender",
+            "reply_to__sender"
         ).prefetch_related(
-            "read_receipts__user"
+            "read_receipts__user",
+            "reactions__user"
         ).order_by(
             "-rank",
             "-id"
         )
 
-        serializer = MessageSerializer(messages, many=True)
+        # Serialize results
+        serializer = MessageSerializer(
+            messages,
+            many=True
+        )
 
         return Response(serializer.data)
 

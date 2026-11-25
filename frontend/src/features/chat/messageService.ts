@@ -31,12 +31,20 @@ export const messageService = {
 
     async searchMessages(
         conversationId: number,
-        query: string
+        query: string,
+        filters?: {
+            sender?: number;
+            date_from?: string;
+            date_to?: string;
+        }
     ): Promise<Message[]> {
         const response = await api.get<Message[]>(
             `/api/conversations/${conversationId}/messages/search/`,
             {
-                params: {q: query}
+                params: {
+                    q: query,
+                    ...filters
+                }
             }
         );
 

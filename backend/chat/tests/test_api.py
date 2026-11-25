@@ -1773,3 +1773,63 @@ class ChatAPITests(TestCase):
         # the message remains globally available
 
         self.assertFalse(message.is_deleted)
+
+    def test_search_messages_by_date_range(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        old_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Project meeting"
+        )
+
+        Message.objects.filter(id=old_message.id).update(
+            created_at=timezone.now() - timedelta(days=30)
+        )
+
+        recent_message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Project meeting"
+        )
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.get(
+            f"/api/conversations/{self.conversation.id}/search/",
+            {
+                "q": "meeting",
+                "date_from": (timezone.now() - timedelta(days=7)).date().isoformat()
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        returned_ids = [item["id"] for item in response.data]
+
+        self.assertIn(recent_message.id, returned_ids)
+        self.assertNotIn(old_message.id, returned_ids)
+
+    def test_search_excludes_deleted_messages(self):
+        message = Message.objects.create(
+                conversation=self.conversation,
+                sender=self.alice,
+                content="Important project meeting"
+        )
+        
+        message.is_deleted = True
+        
+        message.save(update_fields=["is_deleted"])
+
+        self.client.force_authenticate(user=self.alice)
+
+        response = self.client.get(
+            f"/api/conversations/{self.conversation.id}/search/",
+            {"q": "meeting"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = [item["id"] for item in response.data]
+
+        self.assertNotIn(message.id, returned_ids)

@@ -37,8 +37,8 @@ export const messageService = {
             date_from?: string;
             date_to?: string;
         }
-    ): Promise<Message[]> {
-        const response = await api.get<Message[]>(
+    ): Promise<PaginatedMessages> {
+        const response = await api.get<PaginatedMessages>(
             `/api/conversations/${conversationId}/messages/search/`,
             {
                 params: {
@@ -51,6 +51,13 @@ export const messageService = {
         return response.data
     },
 
+    // Load the next page of search results
+    async getNextSearchPage(nextUrl: string): Promise<PaginatedMessages> {
+        const response = await api.get<PaginatedMessages>(nextUrl);
+
+        return response.data;
+    },
+    
     // Edit a message
 
     async editMessage(

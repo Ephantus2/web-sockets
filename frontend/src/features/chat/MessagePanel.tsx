@@ -56,6 +56,8 @@ const MessagePanel = ({
   const [searchDateFrom, setSearchDateFrom] = useState("");
   const [searchDateTo, setSearchDateTo] = useState("");
   const [searchResults, setSearchResults] = useState<Message[]>([]);
+  const [searchNextUrl, setSearchNextUrl] = useState<string | null>(null);
+  const [loadingMoreSearch, setLoadingMoreSearch] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
@@ -122,7 +124,11 @@ const MessagePanel = ({
       setSearching(true);
       setSearchError(null);
 
-      const results = await messageService.searchMessages(
+      // Reset previous search pagination
+      setSearchResults([])
+      setSearchNextUrl(null);
+
+      const response = await messageService.searchMessages(
         conversationId,
         query,
         {
@@ -132,7 +138,11 @@ const MessagePanel = ({
         },
       );
 
-      setSearchResults(results);
+      console.log("Search API response:", response);
+console.log("Search results:", response.results);
+
+      setSearchResults(response.results);
+      setSearchNextUrl(response.next);
       setHasSearched(true);
     } catch (error) {
       console.error("Message search failed:", error);
@@ -141,6 +151,38 @@ const MessagePanel = ({
       setSearching(false);
     }
   };
+
+  const handleLoadMoreSearch = async () => {
+    if (!searchNextUrl || loadingMoreSearch) return;
+
+    try {
+      setLoadingMoreSearch(true);
+      setSearchError(null);
+
+      const response = await messageService.getNextSearchPage(
+        searchNextUrl
+      )
+
+      setSearchResults((previousResults) => {
+        // prevent duplicate messages
+
+        const existingIds = new Set(
+          previousResults.map((message) => message.id)
+        )
+
+        const newMessages = response.results.filter((message) => !existingIds.has(message.id))
+
+        return [...previousResults, ...newMessages];
+      })
+
+      setSearchNextUrl(response.next)
+    } catch (error) {
+      console.error("Failed to load more search results:", error);
+      setSearchError("Unable to load more search results.")
+    } finally {
+      setLoadingMoreSearch(false)
+    }
+  }
 
   const handleJumpToMessage = (messageId: number) => {
     const messageElement = document.getElementById(`message-${messageId}`);
@@ -633,6 +675,20 @@ const MessagePanel = ({
               </div>
             ))}
           </div>
+          {searchNextUrl && (
+            <div className="mt-4 flex justify-center">
+              <button
+              type="button"
+              onClick={handleLoadMoreSearch}
+              disabled={loadingMoreSearch}
+              className="rounded-lg border border-slate-700 bg-slate-800
+              px-4 py-2 text-xs font-medium  text-slate-300 
+              transition hover:bg-slate-700 disabled:opacity-50"
+              >
+                {loadingMoreSearch ? "Loading..." : "Load More Results"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

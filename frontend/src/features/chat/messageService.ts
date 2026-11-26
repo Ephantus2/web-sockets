@@ -57,6 +57,19 @@ export const messageService = {
 
         return response.data;
     },
+
+    // Retrieve a specific message by ID
+
+    async getMessageById(
+        conversationId: number,
+        messageId: number
+    ): Promise<Message> {
+        const response = await api.get<Message>(
+            `/api/conversations/${conversationId}/messages/${messageId}/retrieve/`
+        );
+
+        return response.data
+    },
     
     // Edit a message
 
@@ -159,5 +172,6 @@ export const messageService = {
         );
 
         return response.data;
-    }
+    },
+
 }

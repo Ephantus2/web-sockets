@@ -1797,7 +1797,7 @@ class ChatAPITests(TestCase):
         self.client.force_authenticate(user=self.alice)
 
         response = self.client.get(
-            f"/api/conversations/{self.conversation.id}/search/",
+            f"/api/conversations/{self.conversation.id}/messages/search/",
             {
                 "q": "meeting",
                 "date_from": (timezone.now() - timedelta(days=7)).date().isoformat()
@@ -1805,7 +1805,7 @@ class ChatAPITests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        returned_ids = [item["id"] for item in response.data]
+        returned_ids = [item["id"] for item in response.data["results"]]
 
         self.assertIn(recent_message.id, returned_ids)
         self.assertNotIn(old_message.id, returned_ids)
@@ -1816,7 +1816,7 @@ class ChatAPITests(TestCase):
                 sender=self.alice,
                 content="Important project meeting"
         )
-        
+
         message.is_deleted = True
         
         message.save(update_fields=["is_deleted"])
@@ -1824,12 +1824,12 @@ class ChatAPITests(TestCase):
         self.client.force_authenticate(user=self.alice)
 
         response = self.client.get(
-            f"/api/conversations/{self.conversation.id}/search/",
+            f"/api/conversations/{self.conversation.id}/messages/search/",
             {"q": "meeting"}
         )
 
         self.assertEqual(response.status_code, 200)
 
-        returned_ids = [item["id"] for item in response.data]
+        returned_ids = [item["id"] for item in response.data["results"]]
 
         self.assertNotIn(message.id, returned_ids)

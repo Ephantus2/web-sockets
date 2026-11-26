@@ -261,6 +261,7 @@ class MessageListCreateView(APIView):
         )
 class MessageSearchView(APIView):
     permission_classes = [IsAuthenticated]
+    pagination_class = MessageCursorPagination
 
     def get(self, request, conversation_id):
         conversation = get_object_or_404(
@@ -349,15 +350,59 @@ class MessageSearchView(APIView):
             "read_receipts__user",
             "reactions__user"
         ).order_by(
-            "-rank",
             "-id"
         )
 
         # Serialize results
-        serializer = MessageSerializer(
+        paginator = self.pagination_class()
+
+        paginated_messages = paginator.paginate_queryset(
             messages,
+            request,
+            view=self
+        )
+
+        serializer = MessageSerializer(
+            paginated_messages,
             many=True
         )
+
+        return paginator.get_paginated_response(
+            serializer.data
+        )
+
+class MessageByIdView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, conversation_id, message_id):
+        conversation = get_object_or_404(
+            Conversation,
+            id=conversation_id,
+            participants=request.user
+        )
+
+        message = get_object_or_404(
+            Message.objects.select_related(
+                "sender",
+                "forwarded_from__sender",
+                "forwarded_by",
+                "reply_to__sender"
+            ).prefetch_related(
+                "read_receipts__user",
+                "reactions__user"
+            ),
+            id=message_id,
+            conversation=conversation,
+            is_deleted=False
+        )
+
+        if message.deleted_for.filter(id=request.user.id).exists():
+            return Response(
+                {"detail": "Message not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = MessageSerializer(message)
 
         return Response(serializer.data)
 

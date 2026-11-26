@@ -92,6 +92,8 @@ const MessagePanel = ({
 
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
 
+  const pendingJumpMessageIdRef = useRef<number | null>(null);
+
 
   // Restore read indicators from messages loaded through the rest API.
 
@@ -184,26 +186,57 @@ console.log("Search results:", response.results);
     }
   }
 
-  const handleJumpToMessage = (messageId: number) => {
+  const handleJumpToMessage = async (messageId: number) => {
     const messageElement = document.getElementById(`message-${messageId}`);
 
-    if (!messageElement) {
-      return;
+    // if the message is already rendered, scroll directly to it.
+
+    if (messageElement) {
+      messageElement.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
+
+      setHighlightedMessageId(messageId);
+
+      setTimeout(() => {
+        setHighlightedMessageId((currentId) => currentId === messageId ? null : currentId)
+      }, 2500);
+      return
     }
 
-    messageElement.scrollIntoView({
-      behavior: "smooth",
-      block: "center"
-    });
+    // otherwise, retrieve the message from the backend.
 
-    setHighlightedMessageId(messageId);
+    try{
+      const message = await messageService.getMessageById(
+        conversationId,
+        messageId
+      );
 
-    // Remove the highlight after 2.5 seconde
+      pendingJumpMessageIdRef.current = messageId
 
-    setTimeout(() => {
-      setHighlightedMessageId((currentId) => messageId ? null : currentId,)
-    }, 2500)
-  }
+      setMessages((previousMessages) => {
+        const alreadyExists = previousMessages.some(
+          (item) => item.id === message.id
+        )
+
+        if (alreadyExists) {
+          return previousMessages
+        }
+
+        return [...previousMessages, message].sort(
+          (a, b) => a.id - b.id
+        )
+      })
+
+      // we'll handle scrolling after react renders the message.
+
+      setHighlightedMessageId(messageId)
+    } catch (error) {
+      console.error("Failed to retrieve message", error);
+      setSearchError("Unable to retrieve this message");
+    }
+  } 
 
   // Receive messages from the websocket
 
@@ -453,22 +486,55 @@ console.log("Search results:", response.results);
   };
 
   // scroll to the latest message
+  // Handle scroll when the message changes
 
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
+    // First, check wheather we are jumping to a search result.
+
+    const pendingMessageId = pendingJumpMessageIdRef.current;
+
+    if (pendingMessageId !== null) {
+      const targetMessage = document.getElementById(
+        `message-${pendingMessageId}`
+      );
+
+      if (targetMessage) {
+        targetMessage.scrollIntoView({
+          behavior: "smooth",
+          block: "center"
+        });
+        setHighlightedMessageId(pendingMessageId);
+
+        pendingJumpMessageIdRef.current = null;
+        setTimeout(() => {
+          setHighlightedMessageId((currentId) => currentId ? null : currentId)
+        }, 2500);
+        return
+      }
+    }
+
+    // preserve scroll position when older messages are loaded.
+
     const previousHeight = previousScrollHeightRef.current;
 
     if (previousHeight !== null) {
       const heightDifference = container.scrollHeight - previousHeight;
+
       container.scrollTop += heightDifference;
+
       previousScrollHeightRef.current = null;
-      return;
+
+      return
     }
+
+    // otherwise, scroll to the  latest message.
+
     bottomRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
+      behavior: "smooth"
+    })
   }, [messages]);
 
   const pinnedMessage = messages.find((message) => message.is_pinned);
@@ -657,7 +723,10 @@ console.log("Search results:", response.results);
             {searchResults.map((message) => (
               <div
                 key={message.id}
-                onClick={() => handleJumpToMessage(message.id)}
+                onClick={
+                  () => {
+                    setShowSearch(false)
+                    handleJumpToMessage(message.id)}}
                 className=" cursor-pointer rounded-lg border border-slate-700 bg-slate-800 p-3
                 transition hover:border-blue-500 hover:bg-blue-700"
               >

@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     ConversationListCreateView,
     ConversationDetailView,
+    MessageByIdView,
     MessageListCreateView,
     MessageSearchView,
     UnreadCountView,
@@ -23,4 +24,5 @@ urlpatterns = [
     path("conversations/<int:conversation_id>/messages/<int:message_id>/pin/", MessagePinView.as_view(), name="message-pin"),
     path("conversations/<int:conversation_id>/messages/<int:message_id>/forward/", MessageForwadedView.as_view(), name="message-forward"),
     path("conversations/<int:conversation_id>/messages/<int:message_id>/history/", MessageEditHistoryView.as_view(), name="message-edit-history"),
+    path("conversations/<int:conversation_id>/messages/<int:message_id>/retrieve/", MessageByIdView.as_view(), name="message-by-id")
 ]

@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 
 from rest_framework.test import APIClient
 
-from chat.models import Conversation, Message, MessageEditHistory, MessageReaction
+from chat.models import Conversation, Message, MessageEditHistory, MessageReaction, MessageBookmark
 from notifications.models import Notification, NotificationOutbox
 
 from unittest.mock import mock_open, patch
@@ -1833,3 +1833,121 @@ class ChatAPITests(TestCase):
         returned_ids = [item["id"] for item in response.data["results"]]
 
         self.assertNotIn(message.id, returned_ids)
+
+    def test_user_can_bookmark_a_message(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Message to bookmark"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.post(f"/api/messages/{message.id}/bookmark/")
+
+        self.assertEqual(response.status_code, 201)
+
+        # verify the bookmark was saved for Bob.
+
+        bookmark = MessageBookmark.objects.get(
+            user=self.bob,
+            message=message
+        )
+
+        self.assertEqual(bookmark.user, self.bob)
+        self.assertEqual(bookmark.message, message)
+
+    def test_user_cannot_create_duplicate_bookmarks(self):
+        message = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="Message to bookmark"
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        url = f"/api/messages/{message.id}/bookmark/"
+
+        first_response = self.client.post(url)
+        second_response = self.client.post(url)
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 200)
+
+        self.assertEqual(
+            MessageBookmark.objects.filter(
+                user=self.bob,
+                message=message
+            ).count(),
+            1
+        )
+
+    def test_user_only_sees_own_bookmarks(self):
+        message1 = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.alice,
+            content="First bookmarked message"
+        )
+
+        message2 = Message.objects.create(
+            conversation=self.conversation,
+            sender=self.bob,
+            content="Second bookmarked message"
+        )
+
+        MessageBookmark.objects.create(
+            user=self.bob,
+            message=message1
+        )
+
+        MessageBookmark.objects.create(
+            user=self.alice,
+            message=message2
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.get("/api/bookmarks/")
+
+        self.assertEqual(response.status_code, 200)
+
+        returned_ids = [
+            message["id"] for message in response.data
+        ]
+
+        self.assertIn(message1.id, returned_ids)
+        self.assertNotIn(message2.id, returned_ids)
+
+    def test_user_can_remove_bookmark(self):
+        message = Message.objects.create(
+            conversation = self.conversation,
+            sender = self.alice,
+            content = "Message to remove from bookmarks"
+        )
+
+        MessageBookmark.objects.create(
+            user=self.bob,
+            message=message
+        )
+
+        self.client.force_authenticate(user=self.bob)
+
+        response = self.client.delete(
+            f"/api/messages/{message.id}/bookmark/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.assertFalse(
+            MessageBookmark.objects.filter(
+                user=self.bob,
+                message=message
+            ).exists()
+        )
+
+    def test_unauthenticated_user_cannot_access_bookmarks(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.get("/api/bookmarks/")
+
+        self.assertEqual(response.status_code, 401)

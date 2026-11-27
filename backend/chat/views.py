@@ -3,12 +3,13 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_list_or_404, get_object_or_404
-from .models import Conversation, Message, MessageReaction, MessageEditHistory
+from .models import Conversation, Message, MessageReaction, MessageEditHistory, MessageBookmark
 from .serializers import (
     ConversationSerializer,
     MessageSerializer,
     MessageReactionSerializer,
-    MessageEditHistorySerializer
+    MessageEditHistorySerializer,
+    MessageBookmarkSerializer
 )
 from .pagination import MessageCursorPagination
 
@@ -30,6 +31,8 @@ from notifications.tasks import dispatch_pending_notification_outbox
 
 from django.utils import timezone
 from asgiref.sync import async_to_sync
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -1048,3 +1051,70 @@ class MessageForwadedView(APIView):
             },
             status=status.HTTP_201_CREATED
         )
+
+class MessageBookmarkView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, message_id):
+        message = get_object_or_404(
+            Message,
+            id=message_id,
+            conversation__participants=request.user
+        )
+
+        bookmark, created = MessageBookmark.objects.get_or_create(
+            user=request.user,
+            message=message
+        )
+
+        serializer = MessageBookmarkSerializer(bookmark)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED
+            if created else status.HTTP_200_OK
+        )
+
+    def delete(self, request, message_id):
+        message = get_object_or_404(
+            Message,
+            id=message_id,
+            conversation__participants = request.user
+        )
+
+        bookmark = get_object_or_404(
+            MessageBookmark,
+            user=request.user,
+            message=message
+        )
+
+        bookmark.delete()
+
+        return Response(
+            {"detail": "Bookmark removed successfully."},
+            status=status.HTTP_200_OK
+        )
+    
+
+class BookmarkedMessagesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        bookmarks = MessageBookmark.objects.filter(
+            user=request.user
+        ).select_related(
+            "message",
+            "message__sender",
+            "message__conversation"
+        ).order_by("-created_at")
+
+        messages = [bookmark.message for bookmark in bookmarks]
+
+        serializer = MessageSerializer(
+            messages,
+            many=True,
+            context={"request": request}
+        )
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+

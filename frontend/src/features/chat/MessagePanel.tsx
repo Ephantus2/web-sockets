@@ -9,7 +9,8 @@ import {
   PinOff,
   Forward,
   Reply,
-  MoreHorizontal
+  MoreHorizontal,
+  Bookmark
 } from "lucide-react";
 
 import { useMessages } from "./useMessages";
@@ -27,12 +28,18 @@ interface MessagePanelProps {
   conversationId: number;
   onBack: () => void;
   conversations: Conversation[];
+  onOpenBookmarkedMessage: (conversationId: number, messageId: number) => void;
+  pendingBookmarkMessageId: number | null;
+  onClearPendingBookmark: () => void;
 }
 
 const MessagePanel = ({
   conversationId,
   onBack,
   conversations,
+  onOpenBookmarkedMessage,
+  pendingBookmarkMessageId,
+  onClearPendingBookmark
 }: MessagePanelProps) => {
   const {
     messages,
@@ -69,6 +76,9 @@ const MessagePanel = ({
   const [editError, setEditError] = useState<string | null>(null);
   const [historyMessageId, setHistoryMessageId] = useState<number | null>(null)
   const [openActionMenuId, setOpenActionMenuId] = useState<number | null>(null)
+  const [bookmarkedMessages, setBookmarkedMessages] = useState<number[]>([])
+  const [showBookmarks, setShowBookmarks] = useState(false)
+  const [savedMessages, setSavedMessages] = useState<Message[]>([])
 
   // message forwading
 
@@ -237,6 +247,20 @@ console.log("Search results:", response.results);
       setSearchError("Unable to retrieve this message");
     }
   } 
+
+  useEffect(() => {
+    if (pendingBookmarkMessageId === null || loading) return;
+
+    const messageId = pendingBookmarkMessageId;
+
+    onClearPendingBookmark();
+    handleJumpToMessage(messageId)
+  }, [
+    pendingBookmarkMessageId,
+    loading,
+    conversationId,
+    onClearPendingBookmark
+  ]);
 
   // Receive messages from the websocket
 
@@ -539,6 +563,38 @@ console.log("Search results:", response.results);
 
   const pinnedMessage = messages.find((message) => message.is_pinned);
 
+  const toggleBookmark = async (messageId: number) => {
+    try {
+      if(bookmarkedMessages.includes(messageId)) {
+        await messageService.removeBookmark(messageId);
+
+        setBookmarkedMessages(prev => prev.filter(id => id !== messageId))
+      } else {
+        await messageService.bookmarkMessage(messageId)
+
+        setBookmarkedMessages(prev => [...prev, messageId])
+      }
+
+      setSavedMessages((previous) => bookmarkedMessages.includes(messageId) ? previous.filter((message) => message.id !== messageId) : previous)
+    } catch (error) {
+      console.error("failed to update bookmark", error)
+    }
+  }
+
+  useEffect(() => {
+    const fetchBookmarks = async () => {
+      try {
+        const bookmarks = await messageService.getBookmarkedMessages();
+
+        setBookmarkedMessages(bookmarks.map((message: Message) => message.id))
+      } catch (error) {
+        console.error("Failed to load bookmarks:", error);
+      }
+    };
+    fetchBookmarks()
+  }, [])
+
+
   return (
     <div className="flex h-full flex-col bg-slate-950">
       {/* Header */}
@@ -594,6 +650,25 @@ console.log("Search results:", response.results);
           </button>
 
           <button
+          type="button"
+          onClick={async () => {
+            try {
+              const bookmarks = await messageService.getBookmarkedMessages()
+
+              setSavedMessages(bookmarks)
+              setShowBookmarks(true)
+            } catch (error) {
+              console.error("Failed to fetch bookmarks:", error);
+            }
+          }}
+
+          title="Saved Messages"
+          className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+          >
+            <Bookmark size={18} />
+          </button>
+
+          <button
             onClick={refreshMessages}
             disabled={loading}
             title="Refresh Messages"
@@ -604,6 +679,49 @@ console.log("Search results:", response.results);
           </button>
         </div>
       </header>
+      {
+        showBookmarks && (
+        <div className="border-b border-slate-800 bg-slate-900 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-white">Saved Messages</h3>
+            <button
+            type="button"
+            onClick={() => setShowBookmarks(false)}
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              <X size={18}/>
+            </button>
+          </div>
+
+          {savedMessages.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              No saved messages yet
+            </p>) :
+            (<div className="max-h-64 space-y-2 overflow-y-auto">
+              {savedMessages.map((message) => (
+                <button
+                key={message.id}
+                type="button"
+                onClick={() => {
+                  setShowBookmarks(false)
+                  if (message.conversation !== conversationId){
+                    onOpenBookmarkedMessage(message.conversation, message.id);
+                    return
+                  }
+                  handleJumpToMessage(message.id)
+                }}
+
+                className="block w-full rounded-lg border border-slate-700 bg-slate-800
+                p-3 text-left hover:bg-slate-700"
+
+                >
+                  <p className="text-xs text-slate-400">{message.sender}</p>
+                  <p className="mt-1 text-sm text-white">{message.content}</p>
+                </button>
+              ))}
+            </div>)}
+        </div>)
+      }
 
       {showSearch && (
         <div className="border-b border-slate-800 bg-slate-900 p-4">
@@ -858,7 +976,7 @@ console.log("Search results:", response.results);
               <div
                 key={message.id}
                 id={`message-${message.id}`}
-                className={`flex w-full rounded-xl transition-all duration-500${
+                className={`flex w-full rounded-xl transition-all duration-500 ${
                   isOwnMessage ? "justify-end" : "justify-start"
                 } ${
                   highlightedMessageId === message.id ? "bg-yellow-500/20 ring-2 ring-yellow-400" : ""
@@ -1038,6 +1156,18 @@ console.log("Search results:", response.results);
                             openActionMenuId === message.id && (
                               <div
                               className="absolute right-0 bottom-full z-30 mb-2 w-44 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl ">
+                                <button
+                                onClick={() => {
+                                  toggleBookmark(message.id)
+                                  setOpenActionMenuId(null)
+                                }}
+
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100
+                                dark:hover:bg-gray-700 flex items-center gap-2 text-slate-500 "
+                                >
+                                  <Pin size={15} />
+                                  {bookmarkedMessages.includes(message.id) ? "Remove Bookmark": "Bookmark Message"}
+                                </button>
                                 <button
                               onClick={() => {handleDeleteMessage(message.id, "me")
                                 setOpenActionMenuId(null)

@@ -7,12 +7,18 @@ import { useConversations } from "../features/conversations/useConversations";
 
 const ChatPage = () => {
     const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null)
+    const [pendingBookmarkMessageId, setPendingBookmarkMessageId] = useState<number | null>(null)
     const {
         conversations,
         loading,
         error,
         refreshConversations
     } = useConversations();
+
+    const openBookmarkedMessage = (conversationId: number, messageId: number) => {
+        setPendingBookmarkMessageId(messageId);
+        setSelectedConversationId(conversationId)
+    }
 
  return (
     <main className="flex h-screen flex-col overflow-hidden bg-slate-950">
@@ -37,7 +43,7 @@ const ChatPage = () => {
             className={`h-full min-w-0 flex-1 ${selectedConversationId !== null ? "block" : "hidden"} md:block`}
             >
                 {selectedConversationId !== null ? (
-                    <MessagePanel conversationId={selectedConversationId} onBack={() => setSelectedConversationId(null)} conversations={conversations}/> ) : (
+                    <MessagePanel conversationId={selectedConversationId} onBack={() => setSelectedConversationId(null)} conversations={conversations} onOpenBookmarkedMessage={openBookmarkedMessage} pendingBookmarkMessageId={pendingBookmarkMessageId} onClearPendingBookmark = {() => setPendingBookmarkMessageId(null)}/> ) : (
                         <div className="flex h-full items-center justify-center text-center">
                             <div>
                                 <MessageCircle size={40} className="mx-auto mb-4 text-blue-400" />

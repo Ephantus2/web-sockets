@@ -219,3 +219,38 @@ class MessageEditHistory(models.Model):
 
     def __str__(self):
         return f"Edit: history for message {self.message_id}"
+
+class MessageBookmark(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="message_bookmarks"
+    )
+
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="bookmarks"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "message"],
+                name="unique_user_message_bookmark"
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields=["user", "-created_at"],
+                name="bookmark_user_date_idx"
+            )
+        ]
+
+        ordering = ["-created_at"]
+
+        def __str__(self):
+            return f"{self.user} bookmarked message {self.message_id}"

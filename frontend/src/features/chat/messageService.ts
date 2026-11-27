@@ -174,4 +174,27 @@ export const messageService = {
         return response.data;
     },
 
+    // Bookmark a message
+
+    bookmarkMessage: async (messageId: number) => {
+        const response = await api.post(`/api/messages/${messageId}/bookmark/`);
+
+        return response.data
+    },
+
+    // Remove a bookmark
+
+    removeBookmark: async (messageId: number) => {
+        const response = await api.delete(`/api/messages/${messageId}/bookmark/`);
+
+        return response.data
+    },
+
+    // retrieve bookmarked messages
+
+    getBookmarkedMessages: async () => {
+        const response = await api.get('/api/bookmarks/');
+        return response.data;
+    }
+
 }

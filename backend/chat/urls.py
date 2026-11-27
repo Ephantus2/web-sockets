@@ -10,7 +10,9 @@ from .views import (
     MessageReactionView,
     MessagePinView,
     MessageForwadedView,
-    MessageEditHistoryView
+    MessageEditHistoryView,
+    MessageBookmarkView,
+    BookmarkedMessagesView
 )
 
 urlpatterns = [
@@ -24,5 +26,7 @@ urlpatterns = [
     path("conversations/<int:conversation_id>/messages/<int:message_id>/pin/", MessagePinView.as_view(), name="message-pin"),
     path("conversations/<int:conversation_id>/messages/<int:message_id>/forward/", MessageForwadedView.as_view(), name="message-forward"),
     path("conversations/<int:conversation_id>/messages/<int:message_id>/history/", MessageEditHistoryView.as_view(), name="message-edit-history"),
-    path("conversations/<int:conversation_id>/messages/<int:message_id>/retrieve/", MessageByIdView.as_view(), name="message-by-id")
+    path("conversations/<int:conversation_id>/messages/<int:message_id>/retrieve/", MessageByIdView.as_view(), name="message-by-id"),
+    path("messages/<int:message_id>/bookmark/", MessageBookmarkView.as_view(), name="message-bookmark"),
+    path("bookmarks/", BookmarkedMessagesView.as_view(), name="bookmarked-messages"),
 ]
